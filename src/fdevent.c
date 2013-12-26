@@ -174,6 +174,56 @@ int fdevent_poll(fdevents *ev, int timeout_ms) {
 	return ev->poll(ev, timeout_ms);
 }
 
+int fdevent_poll_dispatch(fdevents * const ev, struct server * const srv, const int timeout_ms) {
+	int fd_ndx = -1;
+	int n;
+	handler_t r;
+	if ((n = fdevent_poll(ev, timeout_ms)) > 0) {
+		/* n is the number of events */
+#if 0
+		log_error_write(srv, __FILE__, __LINE__, "sd", "polls:", n);
+#endif
+		do {
+			int fd, revents;
+			fdevent_handler handler;
+			void *context;
+
+			fd_ndx  = fdevent_event_next_fdndx (ev, fd_ndx);
+			if (-1 == fd_ndx) break; /* not all fdevent handlers know how many fds got an event */
+
+			revents = fdevent_event_get_revent (ev, fd_ndx);
+			fd      = fdevent_event_get_fd     (ev, fd_ndx);
+			handler = fdevent_get_handler(ev, fd);
+			context = fdevent_get_context(ev, fd);
+
+			/* connection_handle_fdevent needs a joblist_append */
+#if 0
+			log_error_write(srv, __FILE__, __LINE__, "sdd",
+					"event for", fd, revents);
+#endif
+			switch (r = (*handler)(srv, context, revents)) {
+			case HANDLER_FINISHED:
+			case HANDLER_GO_ON:
+			case HANDLER_WAIT_FOR_EVENT:
+			case HANDLER_WAIT_FOR_FD:
+				break;
+			case HANDLER_ERROR:
+				/* should never happen */
+				SEGFAULT();
+				break;
+			default:
+				log_error_write(srv, __FILE__, __LINE__, "d", r);
+				break;
+			}
+		} while (--n > 0);
+	} else if (n < 0 && errno != EINTR) {
+		log_error_write(srv, __FILE__, __LINE__, "ss",
+				"fdevent_poll failed:",
+				strerror(errno));
+	}
+	return n; /* 0 success (or timeout); -1 fdevent_poll failure */
+}
+
 int fdevent_event_get_revent(fdevents *ev, size_t ndx) {
 	if (ev->event_get_revent == NULL) SEGFAULT();
 

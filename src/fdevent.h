@@ -187,6 +187,7 @@ void * fdevent_get_context(fdevents *ev, int fd);
 int fdevent_event_next_fdndx(fdevents *ev, int ndx);
 
 int fdevent_poll(fdevents *ev, int timeout_ms);
+int fdevent_poll_dispatch(fdevents * const ev, struct server * const srv, const int timeout_ms);
 
 int fdevent_register(fdevents *ev, int fd, fdevent_handler handler, void *ctx);
 int fdevent_unregister(fdevents *ev, int fd);

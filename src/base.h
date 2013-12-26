@@ -30,6 +30,36 @@
 #include "etag.h"
 
 
+/*
+ * Below attributes simplified for modern compilers from
+ * https://github.com/gstrauss/plasma/blob/master/plasma_attr.h
+ */
+
+#ifndef __attribute_cold__
+#if defined(__GNUC__) || defined(__clang__)
+#define __attribute_cold__  __attribute__((cold))
+#else
+#define __attribute_cold__
+#endif
+#endif
+
+#ifndef __attribute_hot__
+#if defined(__GNUC__) || defined(__clang__)
+#define __attribute_hot__  __attribute__((hot))
+#else
+#define __attribute_hot__
+#endif
+#endif
+
+#ifndef __attribute_noinline__
+#ifdef _MSC_VER
+#define __attribute_noinline__  __declspec(noinline)
+#else
+#define __attribute_noinline__  __attribute__((noinline))
+#endif
+#endif
+
+
 #if defined HAVE_LIBSSL && defined HAVE_OPENSSL_SSL_H
 # define USE_OPENSSL
 # include <openssl/ssl.h>
