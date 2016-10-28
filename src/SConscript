@@ -133,6 +133,13 @@ if env['with_pcre'] and (env['with_memcached'] or env['with_gdbm']):
 if env['with_mysql']:
 	modules['mod_authn_mysql'] = { 'src' : [ 'mod_authn_mysql.c' ], 'lib' : [ env['LIBCRYPT'], env['LIBMYSQL'] ] }
 	modules['mod_mysql_vhost'] = { 'src' : [ 'mod_mysql_vhost.c' ], 'lib' : [ env['LIBMYSQL'] ] }
+	modules['mod_vhost_mysql'] = { 'src' : [ 'mod_vhost_mysql.c' ], 'lib' : [ env['LIBMYSQL'] ] }
+
+if env['with_pgsql']:
+	modules['mod_vhost_pgsql'] = { 'src' : [ 'mod_vhost_pgsql.c' ], 'lib' : [ env['LIBPGSQL'] ] }
+
+if env['with_dbi']:
+	modules['mod_vhost_dbi'] = { 'src' : [ 'mod_vhost_dbi.c' ], 'lib' : [ env['LIBDBI'] ] }
 
 staticenv = env.Clone(CPPFLAGS=[ env['CPPFLAGS'], '-DLIGHTTPD_STATIC' ])
 

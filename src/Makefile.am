@@ -157,6 +157,30 @@ mod_mysql_vhost_la_LIBADD = $(MYSQL_LIBS) $(common_libadd)
 mod_mysql_vhost_la_CPPFLAGS = $(MYSQL_INCLUDE)
 endif
 
+if BUILD_WITH_MYSQL
+lib_LTLIBRARIES += mod_vhost_mysql.la
+mod_vhost_mysql_la_SOURCES = mod_vhost_mysql.c
+mod_vhost_mysql_la_LDFLAGS = $(common_module_ldflags)
+mod_vhost_mysql_la_LIBADD = $(MYSQL_LIBS) $(common_libadd)
+mod_vhost_mysql_la_CPPFLAGS = $(MYSQL_INCLUDE)
+endif
+
+if BUILD_WITH_PGSQL
+lib_LTLIBRARIES += mod_vhost_pgsql.la
+mod_vhost_pgsql_la_SOURCES = mod_vhost_pgsql.c
+mod_vhost_pgsql_la_LDFLAGS = $(common_module_ldflags)
+mod_vhost_pgsql_la_LIBADD = $(PGSQL_LIBS) $(common_libadd)
+mod_vhost_pgsql_la_CPPFLAGS = $(PGSQL_INCLUDE)
+endif
+
+if BUILD_WITH_DBI
+lib_LTLIBRARIES += mod_vhost_dbi.la
+mod_vhost_dbi_la_SOURCES = mod_vhost_dbi.c
+mod_vhost_dbi_la_LDFLAGS = $(common_module_ldflags)
+mod_vhost_dbi_la_LIBADD = $(DBI_LIBS) $(common_libadd)
+mod_vhost_dbi_la_CPPFLAGS = $(DBI_CFLAGS)
+endif
+
 lib_LTLIBRARIES += mod_cgi.la
 mod_cgi_la_SOURCES = mod_cgi.c
 mod_cgi_la_LDFLAGS = $(common_module_ldflags)
@@ -411,9 +435,19 @@ lighttpd_SOURCES += mod_authn_ldap.c
 lighttpd_LDADD += $(LDAP_LIB) $(LBER_LIB)
 endif
 if BUILD_WITH_MYSQL
-lighttpd_SOURCES += mod_authn_mysql.c mod_mysql_vhost.c
+lighttpd_SOURCES += mod_authn_mysql.c mod_mysql_vhost.c mod_vhost_mysql.c
 lighttpd_CPPFLAGS += $(MYSQL_INCLUDE)
 lighttpd_LDADD += $(MYSQL_LIBS)
+endif
+if BUILD_WITH_PGSQL
+lighttpd_SOURCES += mod_vhost_pgsql.c
+lighttpd_CPPFLAGS += $(PGSQL_INCLUDE)
+lighttpd_LDADD += $(PGSQL_LIBS)
+endif
+if BUILD_WITH_DBI
+lighttpd_SOURCES += mod_vhost_dbi.c
+lighttpd_CPPFLAGS += $(DBI_CFLAGS)
+lighttpd_LDADD += $(DBI_LIBS)
 endif
 if BUILD_WITH_MEMCACHED
 lighttpd_CPPFLAGS += $(MEMCACHED_CFLAGS)
