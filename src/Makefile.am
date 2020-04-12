@@ -144,6 +144,20 @@ mod_maxminddb_la_LDFLAGS = $(common_module_ldflags)
 mod_maxminddb_la_LIBADD = $(common_libadd) $(MAXMINDDB_LIB)
 endif
 
+lib_LTLIBRARIES += mod_h264_streaming.la
+mod_h264_streaming_la_SOURCES = mod_h264_streaming.c \
+                                mod_streaming_export.h \
+                                moov.c moov.h \
+                                mp4_io.c mp4_io.h \
+                                mp4_reader.c mp4_reader.h \
+                                mp4_writer.c mp4_writer.h \
+                                mp4_process.c mp4_process.h \
+                                output_bucket.c output_bucket.h \
+                                output_mp4.c output_mp4.h
+mod_h264_streaming_la_CFLAGS = $(AM_CFLAGS) -DBUILDING_H264_STREAMING
+mod_h264_streaming_la_LDFLAGS = $(common_module_ldflags)
+mod_h264_streaming_la_LIBADD = $(common_libadd)
+
 lib_LTLIBRARIES += mod_evasive.la
 mod_evasive_la_SOURCES = mod_evasive.c
 mod_evasive_la_LDFLAGS = $(common_module_ldflags)
@@ -469,7 +483,7 @@ hdr = base64.h buffer.h burl.h network.h log.h http_kv.h keyvalue.h \
 	sys-endian.h sys-mmap.h sys-socket.h sys-strings.h \
 	mod_cml.h mod_cml_funcs.h \
 	safe_memclear.h sock_addr.h splaytree.h status_counter.h \
-	mod_magnet_cache.h
+	mod_magnet_cache.h moov.h
 
 
 DEFS= @DEFS@ -DHAVE_VERSIONSTAMP_H -DLIBRARY_DIR="\"$(libdir)\"" -DSBIN_DIR="\"$(sbindir)\""
