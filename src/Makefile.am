@@ -125,19 +125,21 @@ mod_maxminddb_la_LDFLAGS = $(common_module_ldflags)
 mod_maxminddb_la_LIBADD = $(common_libadd) $(MAXMINDDB_LIB)
 endif
 
+if BUILD_WITH_H264_STREAMING
 lib_LTLIBRARIES += mod_h264_streaming.la
 mod_h264_streaming_la_SOURCES = mod_h264_streaming.c \
-                                mod_streaming_export.h \
-                                moov.c moov.h \
-                                mp4_io.c mp4_io.h \
-                                mp4_reader.c mp4_reader.h \
-                                mp4_writer.c mp4_writer.h \
-                                mp4_process.c mp4_process.h \
-                                output_bucket.c output_bucket.h \
-                                output_mp4.c output_mp4.h
+                                h264/mod_streaming_export.h \
+                                h264/moov.c h264/moov.h \
+                                h264/mp4_io.c h264/mp4_io.h \
+                                h264/mp4_reader.c h264/mp4_reader.h \
+                                h264/mp4_writer.c h264/mp4_writer.h \
+                                h264/mp4_process.c h264/mp4_process.h \
+                                h264/output_bucket.c h264/output_bucket.h \
+                                h264/output_mp4.c h264/output_mp4.h
 mod_h264_streaming_la_CFLAGS = $(AM_CFLAGS) -DBUILDING_H264_STREAMING
 mod_h264_streaming_la_LDFLAGS = $(common_module_ldflags)
 mod_h264_streaming_la_LIBADD = $(common_libadd)
+endif
 
 lib_LTLIBRARIES += mod_webdav.la
 mod_webdav_la_SOURCES = mod_webdav.c
@@ -434,7 +436,6 @@ hdr = base64.h buffer.h burl.h network.h log.h http_kv.h keyvalue.h \
 	ls-hpack/lshpack.h \
 	ls-hpack/lsxpack_header.h \
 	ls-hpack/huff-tables.h \
-	moov.h \
 	compat/fastcgi.h
 
 

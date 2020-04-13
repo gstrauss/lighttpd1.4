@@ -1287,6 +1287,26 @@ if test "$WITH_XXHASH" != no; then
   AC_SUBST([XXHASH_LIBS])
 fi
 
+dnl Check for h264_streaming
+dnl AC_MSG_NOTICE([----------------------------------------])
+dnl AC_MSG_CHECKING([for h264-streaming])
+AC_ARG_WITH([h264_streaming],
+  [AC_HELP_STRING([--with-h264-streaming], [H.264 streaming])],
+  [WITH_H264_STREAMING=$withval],
+  [WITH_H264_STREAMING=no]
+)
+
+if test "$WITH_H264_STREAMING" != no; then
+  AC_MSG_NOTICE([----------------------------------------])
+  AC_MSG_CHECKING([for h264-streaming])
+  AC_MSG_RESULT([$WITH_H264_STREAMING])
+  dnl http://h264.code-shop.com/trac/wiki/Mod-H264-Streaming-Lighttpd-Version2
+  if ! test -d src/h264; then
+    AC_MSG_ERROR([H.264 streaming files not found, install them or build without --with-h264-streaming])
+  fi
+fi
+AM_CONDITIONAL([BUILD_WITH_H264_STREAMING], [test "$WITH_H264_STREAMING" != no])
+
 dnl Check for maxminddb
 AC_MSG_NOTICE([----------------------------------------])
 AC_MSG_CHECKING([for maxminddb])
@@ -1716,6 +1736,9 @@ lighty_track_feature "dbi" "mod_authn_dbi mod_vhostdb_dbi" \
 
 lighty_track_feature "lua" "mod_magnet" \
   'test "$WITH_LUA" != no'
+
+lighty_track_feature "h264_streaming" "mod_h264_streaming" \
+  'test "$WITH_H264_STREAMING" != no'
 
 lighty_track_feature "maxminddb" "mod_maxminddb" \
   'test "$WITH_MAXMINDDB" != no'
