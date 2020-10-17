@@ -78,6 +78,21 @@
 #endif
 #endif
 
+/* check defines from <openssl/ssl.h> for experimental ESNI/ECH support */
+#if !defined(SSL_OP_ESNI_GREASE) && !defined(SSL_OP_ECH_GREASE)
+#define OPENSSL_NO_ESNI
+#endif
+
+#ifndef OPENSSL_NO_ESNI
+#include <openssl/esni.h>
+/* use older API SSL_CTX_set_tlsext_servername_callback() instead of newer API
+ * SSL_CTX_set_client_hello_cb() for current experimental openssl ESNI
+ * implementation which provides the ESNI transparently via the older interface.
+ * lighttpd callback for SSL_CTX_set_client_hello_cb() parses cleartext SNI
+ * (and is not currently aware of ESNI/ECH) */
+#undef SSL_CLIENT_HELLO_SUCCESS
+#endif
+
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
 #include <openssl/core_names.h>
 #include <openssl/store.h>
@@ -109,6 +124,9 @@ typedef struct {
 
 typedef struct {
     SSL_CTX *ssl_ctx;
+    buffer *esni_keydir;
+    int32_t esni_keydir_refresh_interval;
+    time_t esni_keydir_refresh_ts;
 } plugin_ssl_ctx;
 
 typedef struct {
@@ -129,6 +147,7 @@ typedef struct {
     const buffer *ssl_dh_file;
     const buffer *ssl_ec_curve;
     array *ssl_conf_cmd;
+    array *ech_opts;
 
     /*(copied from plugin_data for socket ssl_ctx config)*/
     const plugin_cert *pc;
@@ -494,6 +513,153 @@ ssl_tlsext_status_cb(SSL *ssl, void *arg)
 }
 #endif
 #endif
+
+
+#ifndef OPENSSL_NO_ESNI
+
+#include <dirent.h>
+static int
+mod_openssl_refresh_esni_keys_ctx (server * const srv, plugin_ssl_ctx * const s, const time_t cur_ts)
+{
+    if (NULL == s->esni_keydir
+        || s->esni_keydir_refresh_ts + s->esni_keydir_refresh_interval > cur_ts)
+        return 1;
+
+    int rc = SSL_CTX_esni_server_flush_keys(s->ssl_ctx,
+                                            s->esni_keydir_refresh_interval+5);
+    if (1 != rc)
+        log_error(srv->errh, __FILE__, __LINE__,
+          "SSL: SSL_esni_server_flush_keys failed (%d)", rc);
+
+    buffer * const tb = srv->tmp_buf;
+    buffer * const b = s->esni_keydir;
+    const uint32_t dirlen = buffer_string_length(b);
+    DIR * const dp = opendir(b->ptr);
+    if (NULL == dp) {
+        log_perror(srv->errh,__FILE__,__LINE__,"%s dir:%s",__func__,b->ptr);
+        return 0;
+    }
+    buffer_copy_buffer(tb, b);
+
+    /* load any key files with matching <name>.pub and <name>.priv files */
+
+    /* Try load any good looking public/private ESNI values found in files
+     *
+     * This code is derived from what was added to openssl s_server in
+     * apps/s_server.c stfcd my openssl fork https://github.com/sftcd/openssl
+     */
+    for (struct dirent *ep; (ep = readdir(dp)); ) {
+        /* If file name matches *.priv, then check for matching *.pub */
+        size_t nlen = strlen(ep->d_name);
+        if (nlen <= 5) continue;
+        if (0 != memcmp(ep->d_name+nlen-5, ".priv", 5)) continue;
+
+        buffer_append_path_len(b, ep->d_name, nlen);    /* *.priv */
+        buffer_append_path_len(tb, ep->d_name, nlen-1); /* *.pub  */
+        const uint32_t tblen = buffer_string_length(tb);
+        tb->ptr[tblen-2] = 'u';
+        tb->ptr[tblen-1] = 'b';
+
+        if (1 == SSL_CTX_esni_server_enable(s->ssl_ctx, NULL, b->ptr, tb->ptr)){
+          #ifdef LIGHTTPD_OPENSSL_ESNI_DEBUG
+            log_error(srv->errh, __FILE__, __LINE__,
+              "SSL: SSL_CTX_esni_server_enable() worked for %s", tb->ptr);
+          #endif
+        }
+        else {
+            struct stat st;
+            if (0 == stat(tb->ptr, &st)) {
+                log_error(srv->errh, __FILE__, __LINE__,
+                  "SSL: SSL_CTX_esni_server_enable() failed for %s", tb->ptr);
+                rc = 0;
+            }
+        }
+
+        buffer_string_set_length(b, dirlen);
+        buffer_string_set_length(tb, dirlen);
+    }
+
+    closedir(dp);
+
+  #ifdef LIGHTTPD_OPENSSL_ESNI_DEBUG
+    int numkeys = 0;
+    int ksrv = SSL_CTX_esni_server_key_status(s->ssl_ctx, &numkeys);
+    if (ksrv != 1)
+        log_error(srv->errh, __FILE__, __LINE__,
+          "SSL: SSL_esni_server_key_status failed (%d)", ksrv);
+    else
+        log_error(srv->errh, __FILE__, __LINE__,
+          "SSL: SSL_esni_server_key_status number of keys loaded %d", numkeys);
+  #endif
+
+    if (1 == rc) s->esni_keydir_refresh_ts = cur_ts;
+    return rc;
+}
+
+
+static void
+mod_openssl_refresh_esni_keys (server * const srv, const plugin_data *p, const time_t cur_ts)
+{
+    if (NULL != p->ssl_ctxs) {
+        SSL_CTX * const ssl_ctx_global_scope = p->ssl_ctxs->ssl_ctx;
+        /* refresh esni keys (if not copy of global scope) */
+        for (uint32_t i = 1; i < srv->config_context->used; ++i) {
+            plugin_ssl_ctx * const s = p->ssl_ctxs + i;
+            if (s->ssl_ctx && s->ssl_ctx != ssl_ctx_global_scope)
+                mod_openssl_refresh_esni_keys_ctx(srv, s, cur_ts);
+        }
+        /* refresh esni keys from global scope */
+        if (ssl_ctx_global_scope)
+            mod_openssl_refresh_esni_keys_ctx(srv, p->ssl_ctxs + 0, cur_ts);
+    }
+}
+
+
+#ifdef LIGHTTPD_OPENSSL_ESNI_DEBUG
+
+static void esni_status2env(request_st *r, SSL *ssl)
+{
+    /* set ESNI status in environment */
+    char *hidden = NULL;
+    char *clear_sni = NULL;
+    const char *str;
+  #define s(x) #x
+    switch (SSL_get_esni_status(ssl, &hidden, &clear_sni)) {
+      case SSL_ESNI_STATUS_SUCCESS:   str = s(SSL_ESNI_STATUS_SUCCESS);   break;
+      case SSL_ESNI_STATUS_NOT_TRIED: str = s(SSL_ESNI_STATUS_NOT_TRIED); break;
+      case SSL_ESNI_STATUS_FAILED:    str = s(SSL_ESNI_STATUS_FAILED);    break;
+      case SSL_ESNI_STATUS_BAD_NAME:  str = s(SSL_ESNI_STATUS_BAD_NAME);  break;
+      case SSL_ESNI_STATUS_BAD_CALL:  str = s(SSL_ESNI_STATUS_BAD_CALL);  break;
+      case SSL_ESNI_STATUS_TOOMANY:   str = s(SSL_ESNI_STATUS_TOOMANY);   break;
+      case SSL_ESNI_STATUS_GREASE:    str = s(SSL_ESNI_STATUS_GREASE);    break;
+      default:                        str = "ESNI status unknown";        break;
+    }
+  #undef s
+    if (NULL == clear_sni) *(const char **)&clear_sni = "NONE";
+    if (NULL == hidden)    *(const char **)&hidden    = "NONE";
+    http_header_env_set(r, CONST_STR_LEN("SSL_ESNI_STATUS"),
+                        str, strlen(str));
+    http_header_env_set(r, CONST_STR_LEN("SSL_ESNI_COVER"),
+                        clear_sni, strlen(clear_sni));
+    http_header_env_set(r, CONST_STR_LEN("SSL_ESNI_HIDDEN"),
+                        hidden, strlen(hidden));
+    log_error(r->conf.errh, __FILE__, __LINE__,
+              "esni_status: %s clear_sni: %s hidden: %s",str,clear_sni,hidden);
+}
+
+static unsigned int
+mod_openssl_esni_cb (SSL * const ssl, char * const str)
+{
+    /*(callback is run after successful ESNI extension decryption)*/
+    UNUSED(str);
+    handler_ctx * const hctx = (handler_ctx *) SSL_get_app_data(ssl);
+    esni_status2env(hctx->r, ssl); /* debugging */
+    return 1;
+}
+
+#endif /* LIGHTTPD_OPENSSL_ESNI_DEBUG */
+
+#endif /* !OPENSSL_NO_ESNI */
 
 
 INIT_FUNC(mod_openssl_init)
@@ -1216,6 +1382,22 @@ mod_openssl_client_hello_cb (SSL *ssl, int *al, void *srv)
 
     const unsigned char *name;
     size_t len, slen;
+  #ifdef TLSEXT_TYPE_esni
+    /* code currently inactive; see top of file #undef SSL_CLIENT_HELLO_SUCCESS.
+     * Were the openssl ESNI callback (set with SSL_CTX_set_esni_callback()) to
+     * become something other than what it currently is (mainly informational),
+     * then we might reconsider using it.  An alternative idea is to leverage
+     * the cert_cb (always called during client hello processing and set with
+     * SSL_CTX_set_cert_cb()) to access outcome of ESNI or SNI immediately prior
+     * to server certificate selection.  Prior to existence of cert_cb, the use
+     * of servername_callback (set with SSL_CTX_set_tlsext_servername_callback)
+     * was needed to handle SNI, but might now be folded into cert_cb. */
+   #if 0
+    if (SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_esni, &name, &len)) {
+        return SSL_CLIENT_HELLO_SUCCESS; /* defer to later ESNI processing */
+    }
+   #endif
+  #endif
     if (!SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_server_name, &name, &len)) {
         return SSL_CLIENT_HELLO_SUCCESS; /* client did not provide SNI */
     }
@@ -2390,6 +2572,22 @@ network_init_ssl (server *srv, plugin_config_socket *s, plugin_data *p)
             return -1;
       #endif
 
+      #ifndef OPENSSL_NO_ESNI
+        if (s->ech_opts) {
+          #ifdef LIGHTTPD_OPENSSL_ESNI_DEBUG
+            SSL_CTX_set_esni_callback(s->ssl_ctx, mod_openssl_esni_cb);
+          #endif
+            /* enable SSL_OP_ESNI_TRIALDECRYPT by default unless disabled;
+             * prefer "Options" => "ESNITrialDecrypt" (or "ECHTrialDecrypt")
+             * in lighttpd ssl.openssl.ssl-conf-cmd */
+            if (config_plugin_value_tobool(
+                  array_get_element_klen(s->ech_opts,
+                                         CONST_STR_LEN("trial-decrypt")), 1)) {
+                SSL_CTX_set_options(s->ssl_ctx, SSL_OP_ESNI_TRIALDECRYPT);
+            }
+        }
+      #endif
+
         if (s->ssl_conf_cmd && s->ssl_conf_cmd->used) {
             if (0 != network_openssl_ssl_conf_cmd(srv, s)) return -1;
         }
@@ -2435,6 +2633,9 @@ mod_openssl_set_defaults_sockets(server *srv, plugin_data *p)
      ,{ CONST_STR_LEN("ssl.stek-file"),
         T_CONFIG_STRING,
         T_CONFIG_SCOPE_SERVER }
+     ,{ CONST_STR_LEN("ssl.ech-opts"),
+        T_CONFIG_ARRAY_KVANY,
+        T_CONFIG_SCOPE_CONNECTION }
      ,{ NULL, 0,
         T_CONFIG_UNSET,
         T_CONFIG_SCOPE_UNSET }
@@ -2543,6 +2744,9 @@ mod_openssl_set_defaults_sockets(server *srv, plugin_data *p)
                 if (!buffer_is_empty(cpv->v.b))
                     p->ssl_stek_file = cpv->v.b->ptr;
                 break;
+              case 11:/* ssl.ech-opts */
+                *(const array **)&conf.ech_opts = cpv->v.a;
+                break;
               default:/* should not happen */
                 break;
             }
@@ -2643,6 +2847,17 @@ mod_openssl_set_defaults_sockets(server *srv, plugin_data *p)
         if (0 == network_init_ssl(srv, &conf, p)) {
             plugin_ssl_ctx * const s = p->ssl_ctxs + sidx;
             s->ssl_ctx = conf.ssl_ctx;
+            if (conf.ech_opts) {
+                array *ech_opts = conf.ech_opts;
+                const data_unset *du;
+                du = array_get_element_klen(ech_opts, CONST_STR_LEN("keydir"));
+                s->esni_keydir = du ? &((data_string *)du)->value : NULL;
+                if (s->esni_keydir && buffer_string_is_empty(s->esni_keydir))
+                  s->esni_keydir = NULL;
+                du = array_get_element_klen(ech_opts, CONST_STR_LEN("refresh"));
+                s->esni_keydir_refresh_interval =
+                  config_plugin_value_to_int32(du, 1800);
+            }
         }
         else {
             SSL_CTX_free(conf.ssl_ctx);
@@ -2653,6 +2868,11 @@ mod_openssl_set_defaults_sockets(server *srv, plugin_data *p)
   #ifdef TLSEXT_TYPE_session_ticket
     if (rc == HANDLER_GO_ON && ssl_is_init)
         mod_openssl_session_ticket_key_check(p, log_epoch_secs);
+  #endif
+
+  #ifdef TLSEXT_TYPE_esni
+    if (rc == HANDLER_GO_ON && ssl_is_init)
+        mod_openssl_refresh_esni_keys(srv, p, log_epoch_secs);
   #endif
 
     free(srvplug.cvlist);
@@ -3541,6 +3761,10 @@ TRIGGER_FUNC(mod_openssl_handle_trigger) {
 
   #ifndef OPENSSL_NO_OCSP
     mod_openssl_refresh_stapling_files(srv, p, cur_ts);
+  #endif
+
+  #ifdef TLSEXT_TYPE_esni
+    mod_openssl_refresh_esni_keys(srv, p, cur_ts);
   #endif
 
     return HANDLER_GO_ON;
