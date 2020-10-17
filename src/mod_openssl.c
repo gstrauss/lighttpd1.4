@@ -185,6 +185,7 @@ typedef struct {
     plugin_config defaults;
     server *srv;
     array *cafiles;
+    array *ech_hosts;
     const char *ssl_stek_file;
 } plugin_data;
 
@@ -659,6 +660,86 @@ mod_openssl_esni_cb (SSL * const ssl, char * const str)
 
 #endif /* LIGHTTPD_OPENSSL_ESNI_DEBUG */
 
+
+__attribute_pure__
+static const buffer *
+mod_openssl_ech_only (handler_ctx *hctx, const char *h, size_t hlen)
+{
+    /* future: consider a match-all ("") to require ECH for all */
+    /* future: consider per-socket (per SSL_CTX) list patched in hctx->conf
+     *         (instead of global list constructed from config)
+     *         e.g. directive specifying list of ECH-only hosts
+     *              rather than generating list from $HTTP["host"] conditions */
+    UNUSED(hctx);
+    const data_unset *du;
+    const array * const ech_hosts = plugin_data_singleton->ech_hosts;
+    return ech_hosts && (du = array_get_element_klen(ech_hosts, h, hlen))
+      ? &((const data_string *)du)->value
+      : NULL;
+}
+
+
+__attribute_cold__
+static handler_t
+mod_openssl_ech_only_policy_check (request_st * const r, handler_ctx * const hctx)
+{
+    if (NULL == r->http_host)
+        return HANDLER_GO_ON; /* ignore HTTP/1.0 without Host: header */
+
+    char *hidden = NULL;
+    char *clear_sni = NULL;
+    switch (SSL_get_esni_status(hctx->ssl, &hidden, &clear_sni)) {
+      case SSL_ESNI_STATUS_SUCCESS:
+        /* require that request :authority (Host) match SNI in ECH to avoid one
+         * ECH provided host testing for existence of another ECH-only host.
+         * 'hidden' is assumed normalized since ESNI decryption succeeded. */
+        if (!buffer_is_equal_string(r->http_host, hidden, strlen(hidden))) {
+            r->http_status = 400;
+            return HANDLER_FINISHED;
+        }
+        break;
+      /*case SSL_ESNI_STATUS_NOT_TRIED:*/
+      default:
+        if (0 == r->loops_per_request && r->http_host) {
+            /* avoid acknowledging existence of ECH-only host in request
+             * if connection not ECH and some hosts configured ECH-only */
+            /* always restart request once to minimize timing differences */
+            /* always attempt to do equivalent work, even if wasteful */
+            /* always attempt to provide same behavior for authority in
+             * request whether or not it matches cleartext SNI */
+            /* (r->uri.authority is ECH-only if redo_host *is not* NULL) */
+            const buffer *redo_host =
+              mod_openssl_ech_only(hctx, CONST_BUF_LEN(&r->uri.authority));
+            if (NULL == clear_sni)
+                *(const char **)&clear_sni =
+                  SSL_get_servername(hctx->ssl, TLSEXT_NAMETYPE_host_name);
+            if (NULL != clear_sni) {
+                buffer * const tb = r->tmp_buf;
+                buffer_copy_string_len(tb, clear_sni, strlen(clear_sni));
+                buffer_to_lower(tb); /*(normalized in policy checks)*/
+                if (0 != http_request_host_policy(tb,
+                                                  r->conf.http_parseopts, 443)){
+                    r->http_status = 400;
+                    return HANDLER_FINISHED;
+                }
+                const buffer * const redo_host_sni =
+                  mod_openssl_ech_only(hctx, CONST_BUF_LEN(tb));
+                redo_host = (NULL != redo_host)
+                  ? (NULL == redo_host_sni) ? tb : redo_host_sni
+                  : r->http_host;
+            }
+            else if (NULL == redo_host)
+                redo_host = r->http_host;
+            /* always copy r->http_host, even if copying over itself */
+            buffer_copy_buffer(r->http_host, redo_host);
+            ++r->loops_per_request;
+            return HANDLER_COMEBACK;
+        }
+        break;
+    }
+    return HANDLER_GO_ON;
+}
+
 #endif /* !OPENSSL_NO_ESNI */
 
 
@@ -734,6 +815,7 @@ static void
 mod_openssl_free_config (server *srv, plugin_data * const p)
 {
     array_free(p->cafiles);
+    array_free(p->ech_hosts);
 
     if (NULL != p->ssl_ctxs) {
         SSL_CTX * const ssl_ctx_global_scope = p->ssl_ctxs->ssl_ctx;
@@ -1050,6 +1132,8 @@ mod_openssl_merge_config_cpv (plugin_config * const pconf, const config_plugin_v
       case 14:/* debug.log-ssl-noise */
         pconf->ssl_log_noise = (0 != cpv->v.u);
         break;
+      case 15:/* ssl.non-ech-host */
+        break;
       default:/* should not happen */
         return;
     }
@@ -1346,12 +1430,36 @@ mod_openssl_SNI (handler_ctx *hctx, const char *servername, size_t len)
     /* use SNI to patch mod_openssl config and then reset COMP_HTTP_HOST */
     buffer_copy_string_len(&r->uri.authority, servername, len);
     buffer_to_lower(&r->uri.authority);
-  #if 0
-    /*(r->uri.authority used below for configuration before request read;
-     * revisit for h2)*/
+
+    /*(r->uri.authority used below for configuration before request read)
+     *(r->uri.authority is set here since it is used by config merging,
+     * but r->uri.authority is later overwritten by each HTTP request)*/
     if (0 != http_request_host_policy(&r->uri.authority,
                                       r->conf.http_parseopts, 443))
         return SSL_TLSEXT_ERR_ALERT_FATAL;
+
+  #ifndef OPENSSL_NO_ESNI
+    const array * const ech_hosts = plugin_data_singleton->ech_hosts;
+    if (ech_hosts) { /* ECH-only hosts are configured */
+        /*(given: r->uri.authority contains value from SSL_get_servername())*/
+        char *hidden = NULL;
+        char *clear_sni = NULL;
+        switch (SSL_get_esni_status(hctx->ssl, &hidden, &clear_sni)) {
+          case SSL_ESNI_STATUS_SUCCESS:
+            break;
+          /*case SSL_ESNI_STATUS_NOT_TRIED:*/
+          default:
+            /* **ignore** cleartext SNI if servername is marked ECH-only;
+             * avoid acknowledging existence of host sent in cleartext SNI */
+            /* alternative: apply config for mod_openssl_ech_only() fallback */
+            if (NULL != mod_openssl_ech_only(hctx,
+                                             CONST_BUF_LEN(&r->uri.authority))){
+                buffer_clear(&r->uri.authority);
+                return SSL_TLSEXT_ERR_OK;
+            }
+            break;
+        }
+    }
   #endif
 
     r->conditional_is_valid |= (1 << COMP_HTTP_SCHEME)
@@ -2925,6 +3033,9 @@ SETDEFAULTS_FUNC(mod_openssl_set_defaults)
      ,{ CONST_STR_LEN("ssl.stapling-file"),
         T_CONFIG_STRING,
         T_CONFIG_SCOPE_CONNECTION }
+     ,{ CONST_STR_LEN("ssl.non-ech-host"),
+        T_CONFIG_STRING,
+        T_CONFIG_SCOPE_CONNECTION }
      ,{ CONST_STR_LEN("debug.log-ssl-noise"),
         T_CONFIG_BOOL,
         T_CONFIG_SCOPE_CONNECTION }
@@ -3017,6 +3128,26 @@ SETDEFAULTS_FUNC(mod_openssl_set_defaults)
                 ssl_stapling_file = cpv->v.b;
                 break;
               case 14:/* debug.log-ssl-noise */
+                break;
+              case 15:/* ssl.non-ech-host */
+                if (0 != i) {
+                    config_cond_info cfginfo;
+                    config_get_config_cond_info(&cfginfo,
+                                                (uint32_t)p->cvlist[i].k_id);
+                    if (cfginfo.comp == COMP_HTTP_HOST
+                        && cfginfo.cond == CONFIG_COND_EQ) {
+                        if (NULL == p->ech_hosts) p->ech_hosts = array_init(4);
+                        array_set_key_value(p->ech_hosts,
+                                            CONST_BUF_LEN(cfginfo.string),
+                                            CONST_BUF_LEN(cpv->v.b));
+                    }
+                    else {
+                        log_error(srv->errh, __FILE__, __LINE__,
+                          "%s valid only in $HTTP[\"...\"] == \"...\" config "
+                          "condition, not: %s", cpk[cpv->k_id].k,
+                          cfginfo.comp_key);
+                    }
+                }
                 break;
               default:/* should not happen */
                 break;
@@ -3730,6 +3861,13 @@ REQUEST_FUNC(mod_openssl_handle_uri_raw)
     plugin_data *p = p_d;
     handler_ctx *hctx = r->con->plugin_ctx[p->id];
     if (NULL == hctx) return HANDLER_GO_ON;
+
+  #ifndef OPENSSL_NO_ESNI
+    if (p->ech_hosts) { /* ECH-only hosts are configured */
+        handler_t rc = mod_openssl_ech_only_policy_check(r, hctx);
+        if (HANDLER_GO_ON != rc) return rc;
+    }
+  #endif
 
     mod_openssl_patch_config(r, &hctx->conf);
     if (hctx->conf.ssl_verifyclient) {
