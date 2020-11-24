@@ -15,6 +15,10 @@
 #include <fcntl.h>
 #include <time.h>
 
+#ifdef _WIN32
+#include <io.h>
+#endif
+
 #ifdef SOCK_CLOEXEC
 static int use_sock_cloexec;
 #endif
@@ -602,6 +606,25 @@ int fdevent_open_dirname(char *path, int symlinks) {
 }
 
 
+int fdevent_pipe_cloexec (int * const fds, const unsigned int bufsz_hint) {
+ #ifdef _WIN32
+    return _pipe(fds, bufsz_hint, _O_BINARY | _O_NOINHERIT);
+ #else
+    UNUSED(bufsz_hint);
+  #ifdef HAVE_PIPE2
+    if (0 == pipe2(fds, O_CLOEXEC)) return 0;
+  #endif
+    return 0 == pipe(fds)
+       #ifdef FD_CLOEXEC
+        && 0 == fcntl(fds[0], F_SETFD, FD_CLOEXEC)
+        && 0 == fcntl(fds[1], F_SETFD, FD_CLOEXEC)
+       #endif
+      ?  0
+      : -1;
+ #endif
+}
+
+
 int fdevent_mkstemp_append(char *path) {
   #ifdef __COVERITY__
     /* POSIX-2008 requires mkstemp create file with 0600 perms */
@@ -961,18 +984,13 @@ static void fdevent_init_logger_pipe(const char *cmd, int fds[2], pid_t pid) {
 
 static int fdevent_open_logger_pipe(const char *logger) {
     int fds[2];
-    pid_t pid;
-    if (pipe(fds)) {
+    if (fdevent_pipe_cloexec(fds, 65536))
         return -1;
-    }
-    fdevent_setfd_cloexec(fds[0]);
-    fdevent_setfd_cloexec(fds[1]);
-    /*(nonblocking write() from lighttpd)*/
-    if (0 != fdevent_fcntl_set_nb(fds[1])) { /*(ignore)*/ }
 
-    pid = fdevent_open_logger_pipe_spawn(logger, fds[0]);
-
+    pid_t pid = fdevent_open_logger_pipe_spawn(logger, fds[0]);
     if (pid > 0) {
+        /*(nonblocking write() from lighttpd)*/
+        if (0 != fdevent_fcntl_set_nb(fds[1])) { /*(ignore)*/ }
         fdevent_init_logger_pipe(logger, fds, pid);
         return fds[1];
     }
