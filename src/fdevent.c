@@ -16,7 +16,9 @@
 #include <time.h>
 
 #ifdef _WIN32
+#include <sys/stat.h>   /* _S_IREAD _S_IWRITE */
 #include <io.h>
+#include <share.h>      /* _SH_DENYRW */
 #endif
 
 #ifdef SOCK_CLOEXEC
@@ -626,6 +628,17 @@ int fdevent_pipe_cloexec (int * const fds, const unsigned int bufsz_hint) {
 
 
 int fdevent_mkstemp_append(char *path) {
+ #ifdef _WIN32
+    /* future: if _sopen_s() returns EEXIST, might reset template (path) with
+     * trailing "XXXXXX", and then loop to try again */
+    int fd;
+    return (0 != _mktemp_s(path, strlen(path)+1))
+        && (0 == _sopen_s(&fd, path, _O_CREAT  | _O_EXCL   | _O_TEMPORARY
+                                   | _O_APPEND | _O_BINARY | _O_NOINHERIT,
+                          _SH_DENYRW, _S_IREAD | _S_IWRITE))
+      ? fd
+      : -1;
+ #else
   #ifdef __COVERITY__
     /* POSIX-2008 requires mkstemp create file with 0600 perms */
     umask(0600);
@@ -644,6 +657,7 @@ int fdevent_mkstemp_append(char *path) {
 
     fdevent_setfd_cloexec(fd);
     return fd;
+ #endif
 }
 
 
