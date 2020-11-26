@@ -19,6 +19,7 @@
 #include <sys/stat.h>   /* _S_IREAD _S_IWRITE */
 #include <io.h>
 #include <share.h>      /* _SH_DENYRW */
+#include <winsock2.h>
 #endif
 
 #ifdef SOCK_CLOEXEC
@@ -476,6 +477,14 @@ void fdevent_clrfd_cloexec(int fd) {
 int fdevent_fcntl_set_nb(int fd) {
 #ifdef O_NONBLOCK
 	return fcntl(fd, F_SETFL, O_NONBLOCK | O_RDWR);
+#elif defined(_WIN32) && 0 /* XXX: disable for now */
+	/* disabled; currently results in recv() and accept() failures upon
+	 * second request, perhaps due to not handling specific Windows error */
+	u_long l = 1;
+	return (0 == ioctlsocket(fd, FIONBIO, &l))
+	  ? 0
+	  : (WSAGetLastError() == WSAENOTSOCK) ? 0 : -1;
+            /*(fail silently if not socket (e.g. pipe)))*/
 #else
 	UNUSED(fd);
 	return 0;
@@ -1072,17 +1081,19 @@ ssize_t fdevent_socket_read_discard (int fd, char *buf, size_t sz, int family, i
 }
 
 
+#ifndef _WIN32
 #include <sys/ioctl.h>
+#endif
 #ifdef HAVE_SYS_FILIO_H
 #include <sys/filio.h>  /* FIONREAD (for illumos (OpenIndiana)) */
-#endif
-#ifdef _WIN32
-#include <winsock2.h>
 #endif
 int fdevent_ioctl_fionread (int fd, int fdfmt, int *toread) {
   #ifdef _WIN32
     if (fdfmt != S_IFSOCK) { errno = ENOTSOCK; return -1; }
-    return ioctlsocket(fd, FIONREAD, toread);
+    u_long l;
+    int rc = ioctlsocket(fd, FIONREAD, &l);
+    if (0 == rc) *toread = (int)l;
+    return rc;
   #else
    #ifdef __CYGWIN__
     /*(cygwin supports FIONREAD on pipes, not sockets)*/
@@ -1104,7 +1115,9 @@ int fdevent_connect_status(int fd) {
 }
 
 
+#ifndef _WIN32
 #include <netinet/tcp.h>
+#endif
 #if (defined(__APPLE__) && defined(__MACH__)) \
   || defined(__FreeBSD__) || defined(__NetBSD__) \
   || defined(__OpenBSD__) || defined(__DragonFly__)

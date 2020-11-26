@@ -2,14 +2,30 @@
 #define WIN32_SOCKET_H
 #include "first.h"
 
-#ifdef __WIN32
+#ifdef _WIN32
 
 #include <winsock2.h>
 
+#ifndef ECONNRESET
 #define ECONNRESET WSAECONNRESET
+#endif
+#ifndef EINPROGRESS
 #define EINPROGRESS WSAEINPROGRESS
+#endif
+#ifndef EALREADY
 #define EALREADY WSAEALREADY
+#endif
+#ifndef ECONNABORTED
 #define ECONNABORTED WSAECONNABORTED
+#endif
+
+typedef unsigned short sa_family_t;
+#define recv(a,b,c,d) recv((a),(char *)(b),(c),(d))
+#define getsockopt(a,b,c,d,e) getsockopt((a),(b),(c),(char *)(d),(e))
+#define setsockopt(a,b,c,d,e) setsockopt((a),(b),(c),(char *)(d),(e))
+#ifndef S_IFSOCK /*(used by lighttpd to mark fd type)*/
+#define S_IFSOCK 0140000
+#endif
 
 #else
 
