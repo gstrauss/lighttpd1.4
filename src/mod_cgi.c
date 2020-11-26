@@ -881,13 +881,14 @@ static handler_t cgi_waitpid_cb(server *srv, void *p_d, pid_t pid, int status) {
             if (WTERMSIG(status) != SIGTERM || NULL != hctx) {
                 log_error_st *errh = hctx ? hctx->r->conf.errh : srv->errh;
                 log_error(errh, __FILE__, __LINE__,
-                  "CGI pid %d died with signal %d", pid, WTERMSIG(status));
+                  "CGI pid %lld died with signal %d", (long long)pid,
+                  WTERMSIG(status));
             }
         }
         else {
             log_error_st *errh = hctx ? hctx->r->conf.errh : srv->errh;
             log_error(errh, __FILE__, __LINE__,
-              "CGI pid %d ended unexpectedly", pid);
+              "CGI pid %lld ended unexpectedly", (long long)pid);
         }
 
         return HANDLER_FINISHED;

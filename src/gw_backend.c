@@ -226,8 +226,8 @@ static void gw_proc_connect_success(gw_host *host, gw_proc *proc, int debug, req
 
     if (debug) {
         log_error(r->conf.errh, __FILE__, __LINE__,
-          "got proc: pid: %d socket: %s load: %d",
-          proc->pid, proc->connection_name->ptr, proc->load);
+          "got proc: pid: %lld socket: %s load: %d",
+          (long long)proc->pid, proc->connection_name->ptr, proc->load);
     }
 }
 
@@ -301,8 +301,8 @@ static void gw_proc_release(gw_host *host, gw_proc *proc, int debug, log_error_s
 
     if (debug) {
         log_error(errh, __FILE__, __LINE__,
-          "released proc: pid: %d socket: %s load: %u",
-          proc->pid, proc->connection_name->ptr, proc->load);
+          "released proc: pid: %lld socket: %s load: %u",
+          (long long)proc->pid, proc->connection_name->ptr, proc->load);
     }
 }
 
@@ -352,7 +352,7 @@ static int gw_proc_waitpid(gw_host *host, gw_proc *proc, log_error_st *errh) {
         /* EINVAL or ECHILD no child processes */
         /* should not happen; someone else has cleaned up for us */
         log_perror(errh, __FILE__, __LINE__,
-          "pid %d %d not found", proc->pid, proc->state);
+          "pid %lld %d not found", (long long)proc->pid, proc->state);
     }
     else {
         gw_proc_waitpid_log(host, proc, errh, status);
@@ -1005,8 +1005,8 @@ static void gw_restart_dead_procs(gw_host * const host, log_error_st * const err
     for (gw_proc *proc = host->first; proc; proc = proc->next) {
         if (debug > 2) {
             log_error(errh, __FILE__, __LINE__,
-              "proc: %s %d %d %d %d", proc->connection_name->ptr,
-              proc->state, proc->is_local, proc->load, proc->pid);
+              "proc: %s %d %d %d %lld", proc->connection_name->ptr,
+              proc->state, proc->is_local, proc->load, (long long)proc->pid);
         }
 
         switch (proc->state) {
@@ -2630,8 +2630,9 @@ static void gw_handle_trigger_host(gw_host * const host, log_error_st * const er
         /* terminate proc that has been idling for a long time */
         if (debug) {
             log_error(errh, __FILE__, __LINE__,
-              "idle-timeout reached, terminating child: socket: %s pid %d",
-              proc->unixsocket ? proc->unixsocket->ptr : "", proc->pid);
+              "idle-timeout reached, terminating child: socket: %s pid %lld",
+              proc->unixsocket ? proc->unixsocket->ptr : "",
+              (long long)proc->pid);
         }
 
         gw_proc_kill(host, proc);

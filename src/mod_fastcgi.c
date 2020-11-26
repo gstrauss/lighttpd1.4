@@ -419,8 +419,8 @@ static handler_t fcgi_recv_parse(request_st * const r, struct http_response_opts
 			return HANDLER_GO_ON;
 		log_error(r->conf.errh, __FILE__, __LINE__,
 		  "unexpected end-of-file (perhaps the fastcgi process died):"
-		  "pid: %d socket: %s",
-		  hctx->proc->pid, hctx->proc->connection_name->ptr);
+		  "pid: %lld socket: %s",
+		  (long long)hctx->proc->pid, hctx->proc->connection_name->ptr);
 
 		return HANDLER_ERROR;
 	}

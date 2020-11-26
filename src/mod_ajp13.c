@@ -779,8 +779,8 @@ ajp13_recv_parse (request_st * const r, struct http_response_opts_t * const opts
             return HANDLER_GO_ON;
         log_error(errh, __FILE__, __LINE__,
           "unexpected end-of-file (perhaps the ajp13 process died):"
-          "pid: %d socket: %s",
-          hctx->proc->pid, hctx->proc->connection_name->ptr);
+          "pid: %lld socket: %s",
+          (long long)hctx->proc->pid, hctx->proc->connection_name->ptr);
 
         return HANDLER_ERROR;
     }
@@ -803,8 +803,8 @@ ajp13_recv_parse (request_st * const r, struct http_response_opts_t * const opts
         if (ptr[0] != 'A' || ptr[1] != 'B') {
             log_error(errh, __FILE__, __LINE__,
               "invalid packet prefix sent from container:"
-              "pid: %d socket: %s",
-              hctx->proc->pid, hctx->proc->connection_name->ptr);
+              "pid: %lld socket: %s",
+              (long long)hctx->proc->pid, hctx->proc->connection_name->ptr);
             return HANDLER_ERROR;
         }
         uint32_t plen = ajp13_dec_uint16((uint8_t *)ptr+2);
