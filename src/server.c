@@ -84,6 +84,15 @@ static const buffer default_server_tag = { CONST_STR_LEN(PACKAGE_DESC)+1, 0 };
 /* #define USE_ALARM */
 #endif
 
+#ifdef _WIN32
+#include <Windows.h>
+/* (Note: assume overwrite == 1 in this setenv() replacement) */
+/*#define setenv(name,value,overwrite)  SetEnvironmentVariable((name),(value))*/
+/*#define unsetenv(name)                SetEnvironmentVariable((name),NULL)*/
+#define setenv(name,value,overwrite)  _putenv_s((name), strdup(value))
+#define unsetenv(name)                _putenv_s((name), "")
+#endif
+
 static int oneshot_fd = 0;
 static int oneshot_fdout = -1;
 static fdnode *oneshot_fdn = NULL;
