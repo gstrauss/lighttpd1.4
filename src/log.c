@@ -114,7 +114,9 @@ static void log_write(const log_error_st *errh, buffer *b) {
 		write_all(errh->errorlog_fd, CONST_BUF_LEN(b));
 		break;
 	case ERRORLOG_SYSLOG:
+	  #ifdef HAVE_SYSLOG_H
 		syslog(LOG_ERR, "%s", b->ptr);
+	  #endif
 		break;
 	}
 }
