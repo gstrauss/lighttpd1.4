@@ -5,7 +5,7 @@
 #include <string.h>
 
 #if defined(_WIN32) && !defined(__CYGWIN__)
-#include <WinBase.h>
+#include <Windows.h>
 /*(Windows XP and later provide SecureZeroMemory())*/
 #define HAVE_SECUREZEROMEMORY
 #endif

@@ -9,6 +9,30 @@
 # endif
 #endif
 
+#ifdef _WIN32
+/* https://docs.microsoft.com/en-us/windows/win32/winprog/using-the-windows-headers */
+/* http://web.archive.org/web/20121219084749/http://support.microsoft.com/kb/166474 */
+#define WIN32_LEAN_AND_MEAN
+#define VC_EXTRALEAN
+/* https://docs.microsoft.com/en-us/windows/win32/winsock/maximum-number-of-sockets-supported-2 */
+#define FD_SETSIZE 4096
+/* https://docs.microsoft.com/en-us/previous-versions/ms235384(v=vs.100) */
+#ifdef _MSC_VER
+#define _CRT_NONSTDC_NO_DEPRECATE
+#define _CRT_SECURE_NO_DEPRECATE
+#endif
+#if defined(__MINGW32__) || defined(__MINGW64__)
+#define _POSIX
+#define __USE_MINGW_ALARM 1
+/* https://sourceforge.net/p/mingw-w64/wiki2/gnu%20printf/ */
+#define __USE_MINGW_ANSI_STDIO 1
+/*#include <stdio.h>*/
+#undef __printf__
+/*#define __printf__ __MINGW_PRINTF_FORMAT*/
+#define __printf__ __gnu_printf__
+#endif
+#endif
+
 #ifndef __STDC_WANT_LIB_EXT1__
 #define __STDC_WANT_LIB_EXT1__ 1
 #endif

@@ -48,6 +48,10 @@
 #include <pcre.h>
 #endif
 
+#ifdef _WIN32
+#include <stdio.h>      /* FILENAME_MAX */
+#endif
+
 /**
  * this is a dirlisting for a lighttpd plugin
  */
