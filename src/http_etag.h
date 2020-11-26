@@ -10,7 +10,7 @@
 
 #include "buffer.h"
 
-#ifdef _AIX
+#if defined(_AIX) || defined(_WIN32)
 #include <sys/stat.h>
 #else
 struct stat;            /* declaration */

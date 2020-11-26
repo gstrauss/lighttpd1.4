@@ -183,6 +183,14 @@
 #include <string.h>
 #include <unistd.h>     /* getpid() linkat() rmdir() unlinkat() */
 
+#ifdef _WIN32
+#include <direct.h>
+#ifndef HAVE_LSTAT
+#define lstat(a,b) stat((a),(b))
+#endif
+#define mkdir(a,b) _mkdir(a)
+#endif
+
 #ifdef AT_FDCWD
 #ifndef _ATFILE_SOURCE
 #define _ATFILE_SOURCE

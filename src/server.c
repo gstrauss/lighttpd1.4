@@ -1056,6 +1056,16 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
 	i_am_root = (0 == getuid());
 #endif
 
+#ifdef _WIN32
+	/* https://docs.microsoft.com/en-us/cpp/c-runtime-library/fmode?view=msvc-160 */
+	/* https://sourceforge.net/p/mingw-w64/bugs/857/ */
+	/*_set_fmode(_O_BINARY);*/
+	_fmode = _O_BINARY;
+	_setmode(_fileno(stdin),  _O_BINARY);
+	_setmode(_fileno(stdout), _O_BINARY);
+	_setmode(_fileno(stderr), _O_BINARY);
+#endif
+
 	/* initialize globals (including file-scoped static globals) */
 	oneshot_fd = 0;
 	oneshot_fdout = -1;
@@ -1182,6 +1192,7 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
 				return -1;
 			}
 		}
+	  #ifndef _WIN32 /*(skip S_ISSOCK() and hope for the best if _WIN32)*/
 		else if (!S_ISSOCK(st.st_mode)) {
 			/* require that fd is a socket
 			 * (modules might expect STDIN_FILENO and STDOUT_FILENO opened to /dev/null) */
@@ -1189,6 +1200,7 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
 			  "lighttpd -1 stdin is not a socket");
 			return -1;
 		}
+	  #endif
 	}
 
 	if (srv->srvconf.bindhost && buffer_is_equal_string(srv->srvconf.bindhost, CONST_STR_LEN("/dev/stdin"))) {

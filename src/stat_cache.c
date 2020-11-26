@@ -1435,6 +1435,9 @@ int stat_cache_path_contains_symlink(const buffer *name, log_error_st *errh) {
             return -1;
         }
     } while ((s_cur = strrchr(buf, '/')) > buf); /*(&buf[0]==buf; NULL < buf)*/
+  #else
+    UNUSED(name);
+    UNUSED(errh);
   #endif
 
     return 0;
