@@ -268,7 +268,11 @@ static void cgi_pid_kill(plugin_data *p, pid_t pid) {
     for (size_t i = 0; i < bp->used; ++i) {
         if (bp->ptr[i].pid == pid) {
             bp->ptr[i].ctx = NULL;
+          #ifdef HAVE_FORK
+            /* XXX: future: revisit on _WIN32
+             * (perhaps use pid_t as process handle) */
             kill(pid, SIGTERM);
+          #endif
             return;
         }
     }
