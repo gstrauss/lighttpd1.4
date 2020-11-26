@@ -158,12 +158,14 @@ static void sigaction_handler(int sig, siginfo_t *si, void *context) {
 static void signal_handler(int sig) {
 	switch (sig) {
 	case SIGTERM: srv_shutdown = 1; break;
+  #ifndef _WIN32
 	case SIGUSR1:
 		if (!graceful_shutdown) {
 			graceful_restart = 1;
 			graceful_shutdown = 1;
 		}
 		break;
+  #endif
 	case SIGINT:
 		if (graceful_shutdown) {
 			if (2 == graceful_restart)
@@ -176,8 +178,43 @@ static void signal_handler(int sig) {
 		break;
 	case SIGALRM: handle_sig_alarm = 1; break;
 	case SIGHUP:  handle_sig_hup = 1; break;
+  #ifndef _WIN32
 	case SIGCHLD: handle_sig_child = 1; break;
+  #endif
 	}
+}
+#endif
+
+#ifdef _WIN32
+static int ctrl_break_in_child = 0;
+BOOL WINAPI ConsoleCtrlHandler(DWORD dwType)
+{
+    switch(dwType) {
+    case CTRL_C_EVENT:
+        /* SIGINT */
+        if (graceful_shutdown) {
+            if (2 == graceful_restart)
+                graceful_restart = 1;
+            else
+                srv_shutdown = 1;
+        }
+        else {
+            graceful_shutdown = 1;
+        }
+        break;
+    case CTRL_BREAK_EVENT:
+        /* SIGBREAK (repurposed and treated as SIGUSR1)*/
+        if (!ctrl_break_in_child && !graceful_shutdown) {
+            graceful_restart = 1;
+            graceful_shutdown = 1;
+        }
+        break;
+    case CTRL_CLOSE_EVENT:
+    case CTRL_LOGOFF_EVENT:
+    case CTRL_SHUTDOWN_EVENT:
+        return FALSE;
+    }
+    return TRUE;
 }
 #endif
 
@@ -1510,9 +1547,13 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
 	signal(SIGALRM, signal_handler);
 	signal(SIGTERM, signal_handler);
 	signal(SIGHUP,  signal_handler);
-	signal(SIGCHLD,  signal_handler);
 	signal(SIGINT,  signal_handler);
+   #ifndef _WIN32
+	signal(SIGCHLD, signal_handler);
 	signal(SIGUSR1, signal_handler);
+   #else
+	SetConsoleCtrlHandler((PHANDLER_ROUTINE)ConsoleCtrlHandler,TRUE);
+   #endif
 #endif
 
 
@@ -1696,7 +1737,11 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
 			sigaction(SIGUSR1, &actignore, NULL);
 		}
 	      #elif defined(HAVE_SIGNAL)
+		  #ifndef _WIN32
 			signal(SIGUSR1, SIG_IGN);
+		  #else
+			ctrl_break_in_child = 1;
+		  #endif
 	      #endif
 
 		/**
@@ -1744,7 +1789,7 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
 	/* libev backend overwrites our SIGCHLD handler and calls waitpid on SIGCHLD; we want our own SIGCHLD handling. */
 #ifdef HAVE_SIGACTION
 	sigaction(SIGCHLD, &act, NULL);
-#elif defined(HAVE_SIGNAL)
+#elif defined(HAVE_SIGNAL) && !defined(_WIN32)
 	signal(SIGCHLD,  signal_handler);
 #endif
 
