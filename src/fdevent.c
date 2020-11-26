@@ -456,6 +456,8 @@ void fdevent_setfd_cloexec(int fd) {
 #ifdef FD_CLOEXEC
 	if (fd < 0) return;
 	force_assert(-1 != fcntl(fd, F_SETFD, FD_CLOEXEC));
+#elif defined(_WIN32)
+	SetHandleInformation((HANDLE)_get_osfhandle(fd),HANDLE_FLAG_INHERIT,0);
 #else
 	UNUSED(fd);
 #endif
@@ -464,6 +466,8 @@ void fdevent_setfd_cloexec(int fd) {
 void fdevent_clrfd_cloexec(int fd) {
 #ifdef FD_CLOEXEC
 	if (fd >= 0) force_assert(-1 != fcntl(fd, F_SETFD, 0));
+#elif defined(_WIN32)
+	SetHandleInformation((HANDLE)_get_osfhandle(fd),HANDLE_FLAG_INHERIT,1);
 #else
 	UNUSED(fd);
 #endif
@@ -536,7 +540,11 @@ int fdevent_dup_cloexec (int fd) {
   #ifdef F_DUPFD_CLOEXEC
     return fcntl(fd, F_DUPFD_CLOEXEC, 3);
   #else
+   #ifndef _WIN32
     const int newfd = fcntl(fd, F_DUPFD, 3);
+   #else
+    const int newfd = _dup(fd);
+   #endif
     if (newfd >= 0) fdevent_setfd_cloexec(newfd);
     return newfd;
   #endif
