@@ -300,6 +300,9 @@ env.Append(CPPFLAGS = [
 	'-D_GNU_SOURCE',
 ])
 
+if re.compile("mingw").search(env['PLATFORM']):
+	env.Append(CCFLAGS = Split('-I compat/_WIN32 -I src/compat/_WIN32'))
+
 if env['with_all']:
 	for feature in vars.keys():
 		# only enable 'with_*' flags

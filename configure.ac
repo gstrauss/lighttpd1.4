@@ -88,6 +88,11 @@ LT_INIT([dlopen disable-static shared])
 dnl for solaris
 CPPFLAGS="${CPPFLAGS} -D_REENTRANT"
 
+case "$host_os" in
+  *mingw*) CPPFLAGS="${CPPFLAGS} -I compat/_WIN32 -I src/compat/_WIN32" ;;
+  *) ;;
+esac
+
 dnl Checks for header files.
 
 dnl check for:

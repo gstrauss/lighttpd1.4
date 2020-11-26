@@ -1,0 +1,13 @@
+headers specific to _WIN32 port
+
+dirent.h
+  LICENSE: MIT
+  https://github.com/win32ports/dirent_h/blob/master/dirent.h
+
+sys/queue.h
+  LICENSE: BSD 3-clause
+  (not _WIN32 specific)
+
+sys/wait.h
+  LICENSE: MIT
+  https://github.com/win32ports/sys_wait_h/blob/master/sys/wait.h
