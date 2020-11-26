@@ -100,7 +100,7 @@ static int network_host_parse_addr(server *srv, sock_addr *addr, socklen_t *addr
           ? 0
           : -1;
       #else
-        log_error(srv, __FILE__, __LINE__,
+        log_error(srv->errh, __FILE__, __LINE__,
           "ERROR: Unix Domain sockets are not supported.");
         return -1;
       #endif

@@ -712,7 +712,6 @@ static void proxy_set_Forwarded(connection * const con, request_st * const r, co
     }
 
     if (flags & PROXY_FORWARDED_BY) {
-        int family = sock_addr_get_family(&con->srv_socket->addr);
         /* Note: getsockname() and inet_ntop() are expensive operations.
          * (recommendation: do not to enable by=... unless required)
          * future: might use con->srv_socket->srv_token if addr is not
@@ -724,6 +723,7 @@ static void proxy_set_Forwarded(connection * const con, request_st * const r, co
         buffer_append_string_len(b, CONST_STR_LEN("\""));
       #ifdef HAVE_SYS_UN_H
         /* special-case: might need to encode unix domain socket path */
+        int family = sock_addr_get_family(&con->srv_socket->addr);
         if (family == AF_UNIX) {
             buffer_append_string_backslash_escaped(
               b, CONST_BUF_LEN(con->srv_socket->srv_token));
