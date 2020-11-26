@@ -1516,8 +1516,10 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
 #endif
 
 
+  #ifdef HAVE_GETUID
 	srv->gid = getgid();
 	srv->uid = getuid();
+  #endif
 	srv->pid = getpid();
 
 	/* write pid file */
