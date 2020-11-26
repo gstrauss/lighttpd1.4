@@ -741,6 +741,9 @@ static int fdevent_dup2_close_clrfd_cloexec(int oldfd, int newfd, int reuse) {
     if (oldfd >= 0) {
         if (oldfd != newfd) {
             force_assert(oldfd > STDERR_FILENO);
+          #ifdef _WIN32
+          #define dup2(oldfd,newfd) (0 == _dup2((oldfd),(newfd)) ? (newfd) : -1)
+          #endif
             if (newfd != dup2(oldfd, newfd)) return -1;
             if (!reuse) close(oldfd);
         }

@@ -511,6 +511,9 @@ void network_socket_activation_to_env (server * const srv) {
             continue;
         }
 
+      #ifdef _WIN32
+      #define dup2(oldfd,newfd) (0 == _dup2((oldfd),(newfd)) ? (newfd) : -1)
+      #endif
         /* dup2() removes FD_CLOEXEC on newfd */
         if (fd != dup2(srv_socket->fd, fd)) continue;
         ++fd;

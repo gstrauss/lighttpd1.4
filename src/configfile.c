@@ -32,6 +32,10 @@
 # include <syslog.h>
 #endif
 
+#ifdef _WIN32
+#define dup2(oldfd,newfd) (0 == _dup2((oldfd),(newfd)) ? (newfd) : -1)
+#endif
+
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
