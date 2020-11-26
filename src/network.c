@@ -225,7 +225,9 @@ static int network_server_init(server *srv, network_socket_config *s, buffer *ho
 	socklen_t addr_len = sizeof(sock_addr);
 	sock_addr addr;
 	int family = 0;
+      #ifdef HAVE_IPV6
 	int set_v6only = 0;
+      #endif
 
 	if (buffer_string_is_empty(host_token)) {
 		log_error(srv->errh, __FILE__, __LINE__,
