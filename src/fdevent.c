@@ -611,7 +611,14 @@ int fdevent_open_devnull(void) {
 
 int fdevent_open_dirname(char *path, int symlinks) {
     /*(handle special cases of no dirname or dirname is root directory)*/
-    char * const c = strrchr(path, '/');
+  #ifdef _WIN32
+    char *c = strrchr(path, '/');
+    char *d = strrchr(path, '\\');
+    if (!c || (d && d > c))
+        c = d;
+  #else
+    char * const c = strrchr(path, PSEPC);
+  #endif
     const char * const dname = (NULL != c ? c == path ? "/" : path : ".");
     int dfd;
     int flags = O_RDONLY;
@@ -620,7 +627,7 @@ int fdevent_open_dirname(char *path, int symlinks) {
   #endif
     if (NULL != c) *c = '\0';
     dfd = fdevent_open_cloexec(dname, symlinks, flags, 0);
-    if (NULL != c) *c = '/';
+    if (NULL != c) *c = PSEPC;
     return dfd;
 }
 

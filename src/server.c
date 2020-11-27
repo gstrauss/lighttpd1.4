@@ -864,9 +864,16 @@ static int server_graceful_state_bg (server *srv) {
     /* require exec'd via absolute path or daemon in foreground
      * and exec'd with path containing '/' (e.g. "./xxxxx") */
     char ** const argv = srv->argv;
+  #ifndef _WIN32
     if (0 == srv->srvconf.dont_daemonize
         ? argv[0][0] != '/'
         : NULL == strchr(argv[0], '/')) return 0;
+  #else
+    if (0 == srv->srvconf.dont_daemonize
+        ? argv[0][0] != '/' && argv[0][0] != '\\' && argv[0][1] != ':'
+        : NULL == strchr(argv[0], '/') && NULL == strchr(argv[0], '\\'))
+        return 0;
+  #endif
 
   #if 0
     /* disabled; not fully implemented

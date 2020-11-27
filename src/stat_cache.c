@@ -952,8 +952,8 @@ const buffer * stat_cache_mimetype_by_ext(const array * const mimetypes, const c
         const char *s;
         const data_string *ds;
         if (nlen) {
-            for (s = end-1; s != name && *s != '/'; --s) ; /*(like memrchr())*/
-            if (*s == '/') ++s;
+            for (s = end-1; s != name && *s != PSEPC; --s) ; /*(like memrchr())*/
+            if (*s == PSEPC) ++s;
         }
         else {
             s = name;
@@ -1088,7 +1088,7 @@ void stat_cache_update_entry(const char *name, uint32_t len,
 {
     if (sc.stat_cache_engine == STAT_CACHE_ENGINE_NONE) return;
     force_assert(0 != len);
-    if (name[len-1] == '/') { if (0 == --len) len = 1; }
+    if (name[len-1] == PSEPC) { if (0 == --len) len = 1; }
     splay_tree **sptree = &sc.files;
     stat_cache_entry *sce =
       stat_cache_sptree_find(sptree, name, len);
@@ -1120,7 +1120,7 @@ void stat_cache_delete_entry(const char *name, uint32_t len)
 {
     if (sc.stat_cache_engine == STAT_CACHE_ENGINE_NONE) return;
     force_assert(0 != len);
-    if (name[len-1] == '/') { if (0 == --len) len = 1; }
+    if (name[len-1] == PSEPC) { if (0 == --len) len = 1; }
     splay_tree **sptree = &sc.files;
     stat_cache_entry *sce = stat_cache_sptree_find(sptree, name, len);
     if (sce && buffer_is_equal_string(&sce->name, name, len)) {
@@ -1154,7 +1154,7 @@ static void stat_cache_invalidate_dir_tree_walk(splay_tree *t,
 
     buffer *b = &((stat_cache_entry *)t->data)->name;
     size_t blen = buffer_string_length(b);
-    if (blen > len && b->ptr[len] == '/' && 0 == memcmp(b->ptr, name, len)) {
+    if (blen > len && b->ptr[len] == PSEPC && 0 == memcmp(b->ptr, name, len)) {
         stat_cache_entry *sce = t->data;
         sce->stat_ts = 0;
         if (sce->fam_dir != NULL) {
@@ -1187,7 +1187,7 @@ static void stat_cache_tag_dir_tree(splay_tree *t, const char *name, size_t len,
 
     buffer *b = &((stat_cache_entry *)t->data)->name;
     size_t blen = buffer_string_length(b);
-    if (blen > len && b->ptr[len] == '/' && 0 == memcmp(b->ptr, name, len))
+    if (blen > len && b->ptr[len] == PSEPC && 0 == memcmp(b->ptr, name, len))
         keys[(*ndx)++] = t->key;
 }
 
@@ -1222,7 +1222,7 @@ static void stat_cache_delete_tree(const char *name, uint32_t len)
 void stat_cache_delete_dir(const char *name, uint32_t len)
 {
     force_assert(0 != len);
-    if (name[len-1] == '/') { if (0 == --len) len = 1; }
+    if (name[len-1] == PSEPC) { if (0 == --len) len = 1; }
     stat_cache_delete_tree(name, len);
   #ifdef HAVE_FAM_H
     if (sc.stat_cache_engine == STAT_CACHE_ENGINE_FAM) {
@@ -1253,14 +1253,16 @@ stat_cache_entry * stat_cache_get_entry(const buffer * const name) {
 	int final_slash = 0;
 	size_t len = buffer_string_length(name);
 	force_assert(0 != len);
-	if (name->ptr[len-1] == '/') { final_slash = 1; if (0 == --len) len = 1; }
+	if (name->ptr[len-1] == PSEPC) { final_slash = 1; if (0 == --len) len = 1; }
 	/* Note: paths are expected to be normalized before calling stat_cache,
 	 * e.g. without repeated '/' */
 
+  #ifndef _WIN32
 	if (name->ptr[0] != '/') {
 		errno = EINVAL;
 		return NULL;
 	}
+  #endif
 
 	/*
 	 * check if the directory for this file has changed

@@ -186,9 +186,9 @@ static int cache_call_lua(request_st * const r, plugin_data * const p, const buf
 
 	b = &p->basedir;
 	buffer_copy_buffer(b, &r->physical.path);
-	for (c = b->ptr + buffer_string_length(b); c > b->ptr && *c != '/'; c--);
+	for (c = b->ptr + buffer_string_length(b); c > b->ptr && *c != PSEPC; c--);
 
-	if (*c == '/') {
+	if (*c == PSEPC) {
 		buffer_string_set_length(b, c - b->ptr + 1);
 	}
 

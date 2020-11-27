@@ -1205,6 +1205,9 @@ mod_nss_acme_tls_1 (handler_ctx *hctx)
      * and no leading '.' (e.g. ignore "." or ".." or anything beginning '.') */
     if (buffer_string_is_empty(name))   return SECFailure;
     if (NULL != strchr(name->ptr, '/')) return SECFailure;
+  #ifdef _WIN32
+    if (NULL != strchr(name->ptr, '\\'))return SECFailure;
+  #endif
     if (name->ptr[0] == '.')            return SECFailure;
   #if 0
     if (0 != http_request_host_policy(name, hctx->r->conf.http_parseopts, 443))

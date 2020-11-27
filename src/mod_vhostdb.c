@@ -298,7 +298,7 @@ REQUEST_FUNC(mod_vhostdb_handle_docroot) {
     }
 
     /* sanity check that really is a directory */
-    buffer_append_slash(b);
+    buffer_append_path_sep(b);
     if (!stat_cache_path_isdir(b)) {
         log_perror(r->conf.errh, __FILE__, __LINE__, "%s", b->ptr);
         return mod_vhostdb_error_500(r); /* HANDLER_FINISHED */

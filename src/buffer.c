@@ -185,17 +185,26 @@ void buffer_append_string_len(buffer * const restrict b, const char * const rest
 
 void buffer_append_path_len(buffer * restrict b, const char * restrict a, size_t alen) {
     size_t blen = buffer_string_length(b);
+  #ifdef _WIN32
+    int aslash = (alen && (a[0] == '/' || a[0] == '\\'));
+  #else
     int aslash = (alen && a[0] == '/');
-    buffer_string_prepare_append(b, alen+2); /*(+ '/' and + '\0' if 0 == blen)*/
-    if (blen && b->ptr[blen-1] == '/') {
+  #endif
+    buffer_string_prepare_append(b, alen+2); /*(+ PSEPC and + '\0' if 0==blen)*/
+    if (blen && b->ptr[blen-1] == PSEPC) {
         if (aslash) --b->used;
     }
     else {
         if (!b->used) ++b->used;
-        if (!aslash) b->ptr[++b->used - 2] = '/';
+        if (!aslash) b->ptr[++b->used - 2] = PSEPC;
     }
     memcpy(b->ptr+b->used-1, a, alen);
     b->ptr[(b->used += alen)-1] = '\0';
+  #ifdef _WIN32
+    for (char *p = b->ptr+b->used-1-alen; *p; ++p) {
+        if (*p == '/') *p = PSEPC; /* '\\' */
+    }
+  #endif
 }
 
 void buffer_append_uint_hex_lc(buffer *b, uintmax_t value) {

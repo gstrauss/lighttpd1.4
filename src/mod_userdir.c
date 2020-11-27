@@ -203,7 +203,7 @@ static handler_t mod_userdir_docroot_construct(request_st * const r, plugin_data
      *  change the physical.path;
      *  the exception mod_secdownload doesn't work with userdir anyway)
      */
-    buffer_append_slash(&r->physical.path);
+    buffer_append_path_sep(&r->physical.path);
     /* if no second '/' is found, we assume that it was stripped from the
      * uri.path for the special handling on windows.  we do not care about the
      * trailing slash here on windows, as we already ensured it is a directory

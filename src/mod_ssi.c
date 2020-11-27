@@ -406,7 +406,7 @@ static int process_ssi_stmt(request_st * const r, handler_ctx * const p, const c
 		case SSI_ECHO_DOCUMENT_NAME: {
 			char *sl;
 
-			if (NULL == (sl = strrchr(r->physical.path.ptr, '/'))) {
+			if (NULL == (sl = strrchr(r->physical.path.ptr, PSEPC))) {
 				chunkqueue_append_mem(cq, CONST_BUF_LEN(&r->physical.path));
 			} else {
 				chunkqueue_append_mem(cq, sl + 1, strlen(sl + 1));
@@ -490,7 +490,7 @@ static int process_ssi_stmt(request_st * const r, handler_ctx * const p, const c
 
 		if (file_path) {
 			/* current doc-root */
-			char *sl = strrchr(r->physical.path.ptr, '/');
+			char *sl = strrchr(r->physical.path.ptr, PSEPC);
 			if (NULL == sl) break; /*(not expected)*/
 			buffer_copy_string_len(p->stat_fn, r->physical.path.ptr, sl - r->physical.path.ptr + 1);
 

@@ -321,7 +321,7 @@ static void mod_evhost_build_doc_root_path(buffer *b, array *parsed_host, buffer
 		}
 	}
 
-	buffer_append_slash(b);
+	buffer_append_path_sep(b);
 }
 
 static handler_t mod_evhost_uri_handler(request_st * const r, void *p_d) {

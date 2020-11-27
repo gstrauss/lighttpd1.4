@@ -326,7 +326,7 @@ REQUEST_FUNC(mod_mysql_vhost_handle_docroot) {
 
 	/* sanity check that really is a directory */
 	buffer_copy_string(b, row[0]);
-	buffer_append_slash(b);
+	buffer_append_path_sep(b);
 
 	if (!stat_cache_path_isdir(b)) {
 		log_perror(r->conf.errh, __FILE__, __LINE__, "%s", b->ptr);

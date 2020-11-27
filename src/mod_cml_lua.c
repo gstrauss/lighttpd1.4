@@ -226,7 +226,7 @@ int cache_parse_lua(request_st * const r, plugin_data * const p, const buffer * 
 				int fd;
 
 				/* the file is relative, make it absolute */
-				if (s[0] != '/') {
+				if (s[0] != PSEPC) {
 					buffer_copy_buffer(b, &p->basedir);
 					buffer_append_path_len(b, s, (uint32_t)slen);
 				} else {

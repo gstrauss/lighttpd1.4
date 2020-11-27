@@ -222,8 +222,20 @@ static inline uint32_t buffer_string_length(const buffer *b); /* buffer string l
 __attribute_pure__
 static inline uint32_t buffer_string_space(const buffer *b); /* maximum length of string that can be stored without reallocating */
 
-static inline void buffer_append_slash(buffer *b); /* append '/' no non-empty strings not ending in '/' */
-void buffer_append_path_len(buffer * restrict b, const char * restrict a, size_t alen); /* join strings with '/', if '/' not present */
+/* append '/' to non-empty strings not ending in '/' */
+static inline void buffer_append_slash(buffer *b);
+/* append path separator to non-empty strings not ending in path separator */
+static inline void buffer_append_path_sep(buffer *b);
+/* join path strings with path separator */
+void buffer_append_path_len(buffer * restrict b, const char * restrict a, size_t alen);
+
+#ifdef _WIN32
+#define PSEPC '\\'
+#define PSEPS "\\"
+#else
+#define PSEPC '/'
+#define PSEPS "/"
+#endif
 
 #define BUFFER_APPEND_STRING_CONST(x, y) \
 	buffer_append_string_len(x, y, sizeof(y) - 1)
@@ -273,6 +285,12 @@ static inline void buffer_append_string_buffer(buffer * restrict b, const buffer
 static inline void buffer_append_slash(buffer *b) {
 	uint32_t len = buffer_string_length(b);
 	if (len > 0 && '/' != b->ptr[len-1]) BUFFER_APPEND_STRING_CONST(b, "/");
+}
+
+static inline void buffer_append_path_sep(buffer *b) {
+	uint32_t len = buffer_string_length(b);
+	if (len > 0 && PSEPC != b->ptr[len-1])
+		BUFFER_APPEND_STRING_CONST(b, PSEPS);
 }
 
 static inline void buffer_clear(buffer *b) {

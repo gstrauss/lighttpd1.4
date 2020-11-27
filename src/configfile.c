@@ -2161,16 +2161,11 @@ int config_read(server *srv, const char *fn) {
 	data_config *dc;
 	buffer *dcwd;
 	int ret;
-	char *pos;
 
 	context_init(srv, &context);
 	context.all_configs = srv->config_context;
 
-#ifdef __WIN32
-	pos = strrchr(fn, '\\');
-#else
-	pos = strrchr(fn, '/');
-#endif
+	const char * const pos = strrchr(fn, PSEPC);
 	if (pos) {
 		buffer_copy_string_len(context.basedir, fn, pos - fn + 1);
 	}

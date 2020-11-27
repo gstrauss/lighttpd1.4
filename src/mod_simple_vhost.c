@@ -105,7 +105,7 @@ SETDEFAULTS_FUNC(mod_simple_vhost_set_defaults) {
                 if (!buffer_string_is_empty(cpv->v.b)) {
                     buffer *b;
                     *(const buffer **)&b = cpv->v.b;
-                    buffer_append_slash(b);
+                    buffer_append_path_sep(b);
                 }
                 break;
               case 1: /* simple-vhost.default-host */
@@ -147,7 +147,7 @@ static void build_doc_root_path(buffer *out, const buffer *sroot, const buffer *
 		buffer_append_path_len(out, CONST_BUF_LEN(droot));
 	}
 	else {
-		buffer_append_slash(out);
+		buffer_append_path_sep(out);
 	}
 }
 

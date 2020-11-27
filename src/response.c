@@ -231,18 +231,18 @@ static handler_t http_response_physical_path_check(request_st * const r) {
 		{
 			/*(might check at startup that s->document_root does not end in '/')*/
 			size_t len = buffer_string_length(&r->physical.basedir);
-			if (len > 0 && '/' == r->physical.basedir.ptr[len-1]) --len;
+			if (len > 0 && PSEPC == r->physical.basedir.ptr[len-1]) --len;
 			pathinfo = r->physical.path.ptr + len;
-			if ('/' != *pathinfo) {
+			if (PSEPC != *pathinfo) {
 				pathinfo = NULL;
 			}
 			else if (pathinfo == r->physical.path.ptr) { /*(basedir is "/")*/
-				pathinfo = strchr(pathinfo+1, '/');
+				pathinfo = strchr(pathinfo+1, PSEPC);
 			}
 		}
 
 		buffer * const tb = r->tmp_buf;
-		for (char *pprev = pathinfo; pathinfo; pprev = pathinfo, pathinfo = strchr(pathinfo+1, '/')) {
+		for (char *pprev = pathinfo; pathinfo; pprev = pathinfo, pathinfo = strchr(pathinfo+1, PSEPC)) {
 			buffer_copy_string_len(tb, r->physical.path.ptr, pathinfo - r->physical.path.ptr);
 			const stat_cache_st * const nst = stat_cache_path_stat(tb);
 			if (NULL == nst) {

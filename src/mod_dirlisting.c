@@ -752,7 +752,7 @@ static void http_list_directory_header(const request_st * const r, plugin_data *
 		/* if we have a HEADER file, display it in <pre class="header"></pre> */
 
 		const buffer *hb = p->conf.show_header;
-		if (hb->ptr[0] != '/') {
+		if (hb->ptr[0] != PSEPC) {
 			hb = &p->tmp_buf;
 			buffer_copy_buffer(&p->tmp_buf, &r->physical.path);
 			buffer_append_path_len(&p->tmp_buf, CONST_BUF_LEN(p->conf.show_header));
@@ -801,7 +801,7 @@ static void http_list_directory_footer(const request_st * const r, plugin_data *
 		/* if we have a README file, display it in <pre class="readme"></pre> */
 
 		const buffer *rb = p->conf.show_readme;
-		if (rb->ptr[0] != '/') {
+		if (rb->ptr[0] != PSEPC) {
 			rb = &p->tmp_buf;
 			buffer_copy_buffer(&p->tmp_buf, &r->physical.path);
 			buffer_append_path_len(&p->tmp_buf, CONST_BUF_LEN(p->conf.show_readme));

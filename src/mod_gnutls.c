@@ -1237,6 +1237,9 @@ mod_gnutls_acme_tls_1 (handler_ctx *hctx)
      * and no leading '.' (e.g. ignore "." or ".." or anything beginning '.') */
     if (buffer_string_is_empty(name))   return rc;
     if (NULL != strchr(name->ptr, '/')) return rc;
+  #ifdef _WIN32
+    if (NULL != strchr(name->ptr, '\\'))return rc;
+  #endif
     if (name->ptr[0] == '.')            return rc;
   #if 0
     if (0 != http_request_host_policy(name, hctx->r->conf.http_parseopts, 443))

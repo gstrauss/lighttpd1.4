@@ -271,11 +271,11 @@ FREE_FUNC(mod_deflate_free) {
 #endif
 
 static int mkdir_for_file (char *fn) {
-    for (char *p = fn; (p = strchr(p + 1, '/')) != NULL; ) {
+    for (char *p = fn; (p = strchr(p + 1, PSEPC)) != NULL; ) {
         if (p[1] == '\0') return 0; /* ignore trailing slash */
         *p = '\0';
         int rc = mkdir(fn, 0700);
-        *p = '/';
+        *p = PSEPC;
         if (0 != rc && errno != EEXIST) return -1;
     }
     return 0;
@@ -553,7 +553,7 @@ SETDEFAULTS_FUNC(mod_deflate_set_defaults) {
                     buffer *b;
                     *(const buffer **)&b = cpv->v.b;
                     const uint32_t len = buffer_string_length(b);
-                    if (len > 0 && '/' == b->ptr[len-1])
+                    if (len > 0 && PSEPC == b->ptr[len-1])
                         buffer_string_set_length(b, len-1); /*remove end slash*/
                     struct stat st;
                     if (0 != stat(b->ptr,&st) && 0 != mkdir_recursive(b->ptr)) {
@@ -584,7 +584,7 @@ SETDEFAULTS_FUNC(mod_deflate_set_defaults) {
                     buffer *b;
                     *(const buffer **)&b = cpv->v.b;
                     const uint32_t len = buffer_string_length(b);
-                    if (len > 0 && '/' == b->ptr[len-1])
+                    if (len > 0 && PSEPC == b->ptr[len-1])
                         buffer_string_set_length(b, len-1); /*remove end slash*/
                     struct stat st;
                     if (0 != stat(b->ptr,&st) && 0 != mkdir_recursive(b->ptr)) {
