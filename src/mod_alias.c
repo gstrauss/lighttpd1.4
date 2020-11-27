@@ -128,11 +128,17 @@ mod_alias_remap (request_st * const r, const array * const aliases)
     if (0 == path_len || path_len < basedir_len) return HANDLER_GO_ON;
 
     const uint32_t uri_len = path_len - basedir_len;
-    const char * const uri_ptr = r->physical.path.ptr + basedir_len;
+    char * const uri_ptr = r->physical.path.ptr + basedir_len;
+  #ifdef _WIN32
+    for (char *s = uri_ptr; *s; ++s) { if (*s == PSEPC) *s = '/'; }
+  #endif
     data_string * const ds = (data_string *)
       (!r->conf.force_lowercase_filenames
         ? array_match_key_prefix_klen(aliases, uri_ptr, uri_len)
         : array_match_key_prefix_nc_klen(aliases, uri_ptr, uri_len));
+  #ifdef _WIN32
+    for (char *s = uri_ptr; *s; ++s) { if (*s == '/') *s = PSEPC; }
+  #endif
     if (NULL == ds) return HANDLER_GO_ON;
 
     /* matched */
@@ -145,9 +151,16 @@ mod_alias_remap (request_st * const r, const array * const aliases)
     if (uri_ptr[alias_len] == '.') {
         const char *s = uri_ptr + alias_len + 1;
         if (*s == '.') ++s;
-        if (*s == '/' || *s == '\0') {
+        if (*s == PSEPC || *s == '\0') {
+          #ifndef _WIN32
             if (0 != alias_len && ds->key.ptr[alias_len-1] != '/'
-                && 0 != vlen && ds->value.ptr[vlen-1] == '/') {
+                && 0 != vlen && ds->value.ptr[vlen-1] == '/')
+          #else
+            if (0 != alias_len && ds->key.ptr[alias_len-1] != '/'
+                && 0 != vlen && (ds->value.ptr[vlen-1] == '/'
+                                 || ds->value.ptr[vlen-1] == '\\'))
+          #endif
+            {
                 r->http_status = 403;
                 return HANDLER_FINISHED;
             }

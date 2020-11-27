@@ -320,6 +320,11 @@ static void mod_evhost_build_doc_root_path(buffer *b, array *parsed_host, buffer
 			buffer_append_string_buffer(b, path_pieces);
 		}
 	}
+      #ifdef _WIN32
+        for (char *s = b->ptr; *s; ++s) {
+            if (*s == '/') *s = PSEPC; /*('\\')*/
+        }
+      #endif
 
 	buffer_append_path_sep(b);
 }

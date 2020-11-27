@@ -754,7 +754,7 @@ int buffer_is_valid_UTF8(const buffer *b) {
  *       the operation is performed in-place.
  */
 
-void buffer_path_simplify(buffer *dest, buffer *src)
+void buffer_url_path_simplify(buffer *dest, buffer *src)
 {
 	/* current character, the one before, and the one before that from input */
 	char c, pre1, pre2;

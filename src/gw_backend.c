@@ -1462,14 +1462,21 @@ int gw_set_defaults_backend(server *srv, gw_plugin_data *p, const array *a, gw_p
                                   "( \"/allowed/path\", ... )");
                                 goto error;
                             }
+                          #ifndef _WIN32
                             if (ds->value.ptr[0] != '/') {
                                 log_error(srv->errh, __FILE__, __LINE__,
                                   "x-sendfile-docroot paths must begin with "
                                   "'/'; invalid: \"%s\"", ds->value.ptr);
                                 goto error;
                             }
-                            buffer_path_simplify(&ds->value, &ds->value);
-                            buffer_append_slash(&ds->value);
+                          #endif
+                            buffer_url_path_simplify(&ds->value, &ds->value);
+                          #ifdef _WIN32
+                            for (char *x = ds->value.ptr; *x; ++x) {
+                                if (*x == '/') *x = PSEPC; /*('\\')*/
+                            }
+                          #endif
+                            buffer_append_path_sep(&ds->value);
                         }
                     }
                     break;

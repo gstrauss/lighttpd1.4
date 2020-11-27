@@ -219,14 +219,21 @@ SETDEFAULTS_FUNC(mod_cgi_set_defaults) {
               case 3: /* cgi.x-sendfile-docroot */
                 for (uint32_t j = 0; j < cpv->v.a->used; ++j) {
                     data_string *ds = (data_string *)cpv->v.a->data[j];
+                  #ifndef _WIN32
                     if (ds->value.ptr[0] != '/') {
                         log_error(srv->errh, __FILE__, __LINE__,
                           "%s paths must begin with '/'; invalid: \"%s\"",
                           cpk[cpv->k_id].k, ds->value.ptr);
                         return HANDLER_ERROR;
                     }
-                    buffer_path_simplify(&ds->value, &ds->value);
-                    buffer_append_slash(&ds->value);
+                  #endif
+                    buffer_url_path_simplify(&ds->value, &ds->value);
+                  #ifdef _WIN32
+                    for (char *s = ds->value.ptr; *s; ++s) {
+                        if (*s == '/') *s = PSEPC; /*('\\')*/
+                    }
+                  #endif
+                    buffer_append_path_sep(&ds->value);
                 }
                 break;
               case 4: /* cgi.local-redir */

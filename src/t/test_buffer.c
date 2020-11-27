@@ -10,11 +10,11 @@
 static void run_buffer_path_simplify(buffer *psrc, buffer *pdest, const char *in, size_t in_len, const char *out, size_t out_len) {
 	buffer_copy_string_len(psrc, in, in_len);
 
-	buffer_path_simplify(pdest, psrc);
+	buffer_url_path_simplify(pdest, psrc);
 
 	if (!buffer_eq_slen(pdest, out, out_len)) {
 		fprintf(stderr,
-			"%s.%d: buffer_path_simplify('%s') failed: expected '%s', got '%s'\n",
+			"%s.%d: buffer_url_path_simplify('%s') failed: expected '%s', got '%s'\n",
 			__FILE__,
 			__LINE__,
 			in,
@@ -24,11 +24,11 @@ static void run_buffer_path_simplify(buffer *psrc, buffer *pdest, const char *in
 		abort();
 	} else {
 		if (psrc != pdest) buffer_copy_buffer(psrc, pdest);
-		buffer_path_simplify(pdest, psrc);
+		buffer_url_path_simplify(pdest, psrc);
 
 		if (!buffer_eq_slen(pdest, out, out_len)) {
 			fprintf(stderr,
-				"%s.%d: buffer_path_simplify('%s') failed - not idempotent: expected '%s', got '%s'\n",
+				"%s.%d: buffer_url_path_simplify('%s') failed - not idempotent: expected '%s', got '%s'\n",
 				__FILE__,
 				__LINE__,
 				in,

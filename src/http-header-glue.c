@@ -459,9 +459,14 @@ static void http_response_xsendfile (request_st * const r, buffer * const path, 
 		}
 		return;
 	}
-	buffer_path_simplify(path, path);
+	buffer_url_path_simplify(path, path);
 	if (r->conf.force_lowercase_filenames) {
 		buffer_to_lower(path);
+	  #ifdef _WIN32
+		for (char *s = path->ptr; *s; ++s) {
+			if (*s == '/') *s = PSEPC; /*('\\')*/
+		}
+	  #endif
 	}
 	if (buffer_string_is_empty(path)) {
 		r->http_status = 502;
@@ -541,9 +546,14 @@ static void http_response_xsendfile2(request_st * const r, const buffer * const 
             r->http_status = 502;
             break;
         }
-        buffer_path_simplify(b, b);
+        buffer_url_path_simplify(b, b);
         if (r->conf.force_lowercase_filenames) {
             buffer_to_lower(b);
+          #ifdef _WIN32
+            for (char *s = b->ptr; *s; ++s) {
+                if (*s == '/') *s = PSEPC; /*('\\')*/
+            }
+          #endif
         }
         if (buffer_string_is_empty(b)) {
             r->http_status = 502;
