@@ -26,7 +26,9 @@
 #include <string.h>
 #include <ctype.h>
 #include <limits.h>
+#ifndef _WIN32
 #include <glob.h>
+#endif
 
 #ifdef HAVE_SYSLOG_H
 # include <syslog.h>
@@ -2002,6 +2004,84 @@ static int config_parse_file_stream(server *srv, config_t *context, const char *
     free(data);
     return rc;
 }
+
+#ifdef _WIN32
+/*(minimal implementation for lighttpd configfile.c)*/
+typedef struct {
+    size_t gl_pathc;
+    char **gl_pathv;
+} glob_t;
+#define GLOB_NOSPACE  1
+#define GLOB_ABORTED  2
+#define GLOB_NOMATCH  3
+static void globfree (glob_t * const gl)
+{
+    for (size_t i = 0; i < gl->gl_pathc; ++i)
+        free(gl->gl_pathv[i]);
+    free(gl->gl_pathv);
+    gl->gl_pathc = 0;
+    gl->gl_pathv = NULL;
+}
+static int glob_C_cmp(const void *arg1, const void *arg2)
+{
+   return strcmp(*(char **)arg1, *(char **)arg2);
+}
+static int glob(const char *pattern, int flags,
+                int (*errfunc) (const char *epath, int eerrno),
+                glob_t * const gl)
+{
+    UNUSED(flags);   /*(not implemented; ignore GLOB_BRACE)*/
+    UNUSED(errfunc); /*(not implemented)*/
+    gl->gl_pathc = 0;
+    gl->gl_pathv = NULL;
+    size_t sz = 0;
+
+    WIN32_FIND_DATA ffd;
+    HANDLE hFind = FindFirstFile(pattern, &ffd);
+    if (hFind == INVALID_HANDLE_VALUE)
+        return GetLastError() == ERROR_NO_MORE_FILES
+          ? GLOB_NOMATCH
+          : GLOB_ABORTED;
+
+    do {
+        if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            continue; /*(dir check is specific to lighttpd configfile.c use)*/
+
+        if (gl->gl_pathc == sz) {
+            if (0 == sz) sz = 4;
+            sz <<= 1;
+            char **gl_pathv = realloc(gl->gl_pathv, sz * sizeof(char *));
+            if (NULL == gl_pathv) {
+                globfree(gl);
+                return GLOB_NOSPACE;
+            }
+            gl->gl_pathv = gl_pathv;
+        }
+
+        gl->gl_pathv[gl->gl_pathc] = strdup(ffd.cFileName);
+        if (NULL == gl->gl_pathv[gl->gl_pathc]) {
+            globfree(gl);
+            return GLOB_NOSPACE;
+        }
+
+        ++gl->gl_pathc;
+    } while (FindNextFile(hFind, &ffd));
+
+    DWORD err = GetLastError();
+    FindClose(hFind);
+
+    if (err != ERROR_NO_MORE_FILES) {
+        globfree(gl);
+        return GLOB_ABORTED; /*(actual error in GetLastError())*/
+    }
+    else if (0 == gl->gl_pathc) /*(found only directories)*/
+        return GLOB_NOMATCH;
+
+    qsort(gl->gl_pathv, gl->gl_pathc, sizeof(char *), glob_C_cmp);
+
+    return 0;
+}
+#endif
 
 int config_parse_file(server *srv, config_t *context, const char *fn) {
 	buffer *filename;
