@@ -26,7 +26,6 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
-#include <dirent.h>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -49,7 +48,10 @@
 #endif
 
 #ifdef _WIN32
+#include <windows.h>
 #include <stdio.h>      /* FILENAME_MAX */
+#else
+#include <dirent.h>
 #endif
 
 /**
@@ -855,11 +857,13 @@ static int http_list_directory(request_st * const r, plugin_data * const p, buff
 	char * const path = malloc(dlen + name_max + 1);
 	force_assert(NULL != path);
 	memcpy(path, dir->ptr, dlen+1);
-  #if defined(HAVE_XATTR) || defined(HAVE_EXTATTR) || !defined(_ATFILE_SOURCE)
+  #if defined(HAVE_XATTR) || defined(HAVE_EXTATTR) \
+   || (!defined(_ATFILE_SOURCE) && !defined(_WIN32))
 	char *path_file = path + dlen;
   #endif
 	log_error_st * const errh = r->conf.errh;
 
+  #ifndef _WIN32
 	struct dirent *dent;
   #ifndef _ATFILE_SOURCE /*(not using fdopendir unless _ATFILE_SOURCE)*/
 	const int dfd = -1;
@@ -874,6 +878,7 @@ static int http_list_directory(request_st * const r, plugin_data * const p, buff
 		free(path);
 		return -1;
 	}
+  #endif
 
 	dirls_list_t dirs, files;
 	dirs.ent   = (dirls_entry_t**) malloc(sizeof(dirls_entry_t*) * DIRLIST_BLOB_SIZE);
@@ -886,10 +891,34 @@ static int http_list_directory(request_st * const r, plugin_data * const p, buff
 	files.used = 0;
 
 	const int hide_dotfiles = p->conf.hide_dot_files;
+  #ifdef _WIN32
+	path[dlen] = '*';
+	path[dlen+1] = '\0';
+	WIN32_FIND_DATA ffd;
+	HANDLE const hFind = FindFirstFile(path, &ffd);
+	if (INVALID_HANDLE_VALUE == hFind) {
+		if (GetLastError() != ERROR_FILE_NOT_FOUND) {
+			log_error(errh, __FILE__, __LINE__,
+			  "FindFirstFile failed: %s", dir->ptr);
+			free(files.ent);
+			free(dirs.ent);
+			free(path);
+			return -1;
+		}
+	}
+	else do
+  #else
 	struct stat st;
-	while ((dent = readdir(dp)) != NULL) {
+	while ((dent = readdir(dp)) != NULL)
+  #endif
+	{
+	  #ifdef _WIN32
+		const char * const d_name = ffd.cFileName;
+		const uint32_t dsz = (uint32_t)strlen(d_name);
+	  #else
 		const char * const d_name = dent->d_name;
 		const uint32_t dsz = (uint32_t) _D_EXACT_NAMLEN(dent);
+	  #endif
 		if (d_name[0] == '.') {
 			if (hide_dotfiles)
 				continue;
@@ -926,6 +955,7 @@ static int http_list_directory(request_st * const r, plugin_data * const p, buff
 		force_assert(dsz < sizeof(dent->d_name));
 	  #endif
 
+	  #ifndef _WIN32
 	  #ifndef _ATFILE_SOURCE
 		memcpy(path_file, d_name, dsz + 1);
 		if (stat(path, &st) != 0)
@@ -937,6 +967,10 @@ static int http_list_directory(request_st * const r, plugin_data * const p, buff
 	  #endif
 
 		dirls_list_t * const list = !S_ISDIR(st.st_mode) ? &files : &dirs;
+	  #else  /* _WIN32 */
+		dirls_list_t * const list =
+		  !(ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? &files : &dirs;
+	  #endif /* _WIN32 */
 		if (list->used == list->size) {
 			list->size += DIRLIST_BLOB_SIZE;
 			list->ent   = (dirls_entry_t**) realloc(list->ent, sizeof(dirls_entry_t*) * list->size);
@@ -944,12 +978,30 @@ static int http_list_directory(request_st * const r, plugin_data * const p, buff
 		}
 		dirls_entry_t * const tmp = list->ent[list->used++] =
 		  (dirls_entry_t*) malloc(sizeof(dirls_entry_t) + 1 + dsz);
+	  #ifdef _WIN32 /*(convert 100ns ticks since 1 Jan 1601 to unix time_t)*/
+		/*(future: preserve FILETIME here and use Windows fn to format time
+		 * below instead of localtime_r() and buffer_append_strftime())*/
+		tmp->mtime = (time_t)
+                  ((((int64_t)ffd.ftLastWriteTime.dwHighDateTime << 32)
+		            | ffd.ftLastWriteTime.dwLowDateTime)
+                  / 10000000 - 11644473600LL);
+		tmp->size = ((int64_t)ffd.nFileSizeHigh << 32) | ffd.nFileSizeLow;
+	  #else
 		tmp->mtime = st.st_mtime;
 		tmp->size  = st.st_size;
+	  #endif
 		tmp->namelen = dsz;
 		memcpy(DIRLIST_ENT_NAME(tmp), d_name, dsz + 1);
 	}
+  #ifdef _WIN32
+	  while (FindNextFile(hFind, &ffd) != 0);
+	if (GetLastError() != ERROR_NO_MORE_FILES) {
+		/*(some other GetLastError() value; ignore; truncate listing)*/
+	}
+	FindClose(hFind);
+  #else
 	closedir(dp);
+  #endif
 
 	if (dirs.used) http_dirls_sort(dirs.ent, dirs.used);
 
