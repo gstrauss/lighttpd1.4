@@ -860,6 +860,20 @@ connection *connection_accept(server *srv, server_socket *srv_socket) {
 
 	cnt = fdevent_accept_listenfd(srv_socket->fd, (struct sockaddr *) &cnt_addr, &cnt_len);
 	if (-1 == cnt) {
+	  #ifdef _WIN32
+		const int lastError = WSAGetLastError();
+		switch (lastError) {
+		case WSAEINTR:
+		case WSAEWOULDBLOCK:
+		case WSAECONNRESET:
+		case WSAENOBUFS:
+		case WSAEMFILE:
+			break;
+		default:
+			log_error(srv->errh, __FILE__, __LINE__,
+			  "accept failed: %d", lastError);
+		}
+	  #else
 		switch (errno) {
 		case EAGAIN:
 #if EWOULDBLOCK != EAGAIN
@@ -876,6 +890,7 @@ connection *connection_accept(server *srv, server_socket *srv_socket) {
 		default:
 			log_perror(srv->errh, __FILE__, __LINE__, "accept failed");
 		}
+	  #endif
 		return NULL;
 	} else {
 		if (sock_addr_get_family(&cnt_addr) != AF_UNIX) {
@@ -892,13 +907,13 @@ static int connection_read_cq_err(connection *con) {
   #if defined(__WIN32)
     int lastError = WSAGetLastError();
     switch (lastError) {
-    case EAGAIN:
+      case WSAEWOULDBLOCK:
         return 0;
-    case EINTR:
+      case WSAEINTR:
         /* we have been interrupted before we could read */
         con->is_readable = 1;
         return 0;
-    case ECONNRESET:
+      case WSAECONNRESET:
         /* suppress logging for this error, expected for keep-alive */
         break;
     default:

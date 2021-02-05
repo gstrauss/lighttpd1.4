@@ -1148,6 +1148,11 @@ handler_t http_response_read(request_st * const r, http_response_opts * const op
             avail = chunk_buffer_prepare_append(b, avail);
         }
 
+      #ifdef _WIN32
+        if (opts->backend != BACKEND_CGI)
+            n = recv(fd, b->ptr+buffer_string_length(b), avail, 0);
+        else
+      #endif
         n = read(fd, b->ptr+buffer_string_length(b), avail);
 
         if (n < 0) {

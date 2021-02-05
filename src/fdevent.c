@@ -477,9 +477,7 @@ void fdevent_clrfd_cloexec(int fd) {
 int fdevent_fcntl_set_nb(int fd) {
 #ifdef O_NONBLOCK
 	return fcntl(fd, F_SETFL, O_NONBLOCK | O_RDWR);
-#elif defined(_WIN32) && 0 /* XXX: disable for now */
-	/* disabled; currently results in recv() and accept() failures upon
-	 * second request, perhaps due to not handling specific Windows error */
+#elif defined(_WIN32)
 	u_long l = 1;
 	return (0 == ioctlsocket(fd, FIONBIO, &l))
 	  ? 0
@@ -1084,7 +1082,19 @@ ssize_t fdevent_socket_read_discard (int fd, char *buf, size_t sz, int family, i
     UNUSED(family);
     UNUSED(so_type);
   #endif
+  #if defined(_WIN32)
+    ssize_t rd = recv(fd, buf, sz, 0);
+    if (rd == SOCKET_ERROR) { /*(is this necessary?)*/
+        switch (WSAGetLastError()) {
+          case WSAEINTR:       errno = EINTR;  break;
+          case WSAEWOULDBLOCK: errno = EAGAIN; break;
+          default:             errno = EIO;    break;
+        }
+    }
+    return rd;
+  #else
     return read(fd, buf, sz);
+  #endif
 }
 
 
