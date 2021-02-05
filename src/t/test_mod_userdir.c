@@ -13,6 +13,15 @@ static void test_mod_userdir_reset(request_st * const r)
     buffer_clear(&r->physical.path);
 }
 
+static buffer *
+win32_path_undo (buffer *b)
+{
+    for (char *s = b->ptr; *s; ++s) {
+        if (*s == '\\') *s = '/';
+    }
+    return b;
+}
+
 static void
 test_mod_userdir_docroot_handler(request_st * const r, plugin_data * const p)
 {
@@ -64,18 +73,18 @@ test_mod_userdir_docroot_handler(request_st * const r, plugin_data * const p)
     buffer_copy_string_len(&r->physical.rel_path, CONST_STR_LEN("/~jan/"));
     test_mod_userdir_reset(r);
     assert(HANDLER_GO_ON == mod_userdir_docroot_handler(r, p));
-    assert(buffer_eq_slen(&r->physical.basedir,
+    assert(buffer_eq_slen(win32_path_undo(&r->physical.basedir),
                           CONST_STR_LEN("/web/u/jan/public_html")));
-    assert(buffer_eq_slen(&r->physical.path,
+    assert(buffer_eq_slen(win32_path_undo(&r->physical.path),
                           CONST_STR_LEN("/web/u/jan/public_html/")));
 
     buffer_copy_string_len(&r->uri.path, CONST_STR_LEN("/~jan/more"));
     buffer_copy_string_len(&r->physical.rel_path, CONST_STR_LEN("/~jan/more"));
     test_mod_userdir_reset(r);
     assert(HANDLER_GO_ON == mod_userdir_docroot_handler(r, p));
-    assert(buffer_eq_slen(&r->physical.basedir,
+    assert(buffer_eq_slen(win32_path_undo(&r->physical.basedir),
                           CONST_STR_LEN("/web/u/jan/public_html")));
-    assert(buffer_eq_slen(&r->physical.path,
+    assert(buffer_eq_slen(win32_path_undo(&r->physical.path),
                           CONST_STR_LEN("/web/u/jan/public_html/more")));
 
     p->defaults.letterhomes = 1;
@@ -90,9 +99,9 @@ test_mod_userdir_docroot_handler(request_st * const r, plugin_data * const p)
     buffer_copy_string_len(&r->physical.rel_path, CONST_STR_LEN("/~jan/"));
     test_mod_userdir_reset(r);
     assert(HANDLER_GO_ON == mod_userdir_docroot_handler(r, p));
-    assert(buffer_eq_slen(&r->physical.basedir,
+    assert(buffer_eq_slen(win32_path_undo(&r->physical.basedir),
                           CONST_STR_LEN("/web/u/j/jan/public_html")));
-    assert(buffer_eq_slen(&r->physical.path,
+    assert(buffer_eq_slen(win32_path_undo(&r->physical.path),
                           CONST_STR_LEN("/web/u/j/jan/public_html/")));
 
     p->defaults.letterhomes = 0;
@@ -117,9 +126,9 @@ test_mod_userdir_docroot_handler(request_st * const r, plugin_data * const p)
     buffer_copy_string_len(&r->physical.rel_path, CONST_STR_LEN("/~jan/"));
     test_mod_userdir_reset(r);
     assert(HANDLER_GO_ON == mod_userdir_docroot_handler(r, p));
-    assert(buffer_eq_slen(&r->physical.basedir,
+    assert(buffer_eq_slen(win32_path_undo(&r->physical.basedir),
                           CONST_STR_LEN("/web/u/jan/public_html")));
-    assert(buffer_eq_slen(&r->physical.path,
+    assert(buffer_eq_slen(win32_path_undo(&r->physical.path),
                           CONST_STR_LEN("/web/u/jan/public_html/")));
 
     p->defaults.exclude_user = exclude_user;
@@ -130,9 +139,9 @@ test_mod_userdir_docroot_handler(request_st * const r, plugin_data * const p)
     buffer_copy_string_len(&r->physical.rel_path, CONST_STR_LEN("/~jan/"));
     test_mod_userdir_reset(r);
     assert(HANDLER_GO_ON == mod_userdir_docroot_handler(r, p));
-    assert(buffer_eq_slen(&r->physical.basedir,
+    assert(buffer_eq_slen(win32_path_undo(&r->physical.basedir),
                           CONST_STR_LEN("/web/u/jan/public_html")));
-    assert(buffer_eq_slen(&r->physical.path,
+    assert(buffer_eq_slen(win32_path_undo(&r->physical.path),
                           CONST_STR_LEN("/web/u/jan/public_html/")));
 
     array_insert_value(exclude_user, CONST_STR_LEN("jan"));
@@ -155,7 +164,11 @@ int main (void)
     plugin_data * const p = mod_userdir_init();
     assert(NULL != p);
 
+  #ifdef _WIN32
+    buffer *basepath = buffer_init_string("\\web\\u\\"); /*(skip getpwnam())*/
+  #else
     buffer *basepath = buffer_init_string("/web/u/"); /*(skip getpwnam())*/
+  #endif
     buffer *path     = buffer_init_string("public_html");
     p->defaults.basepath = basepath;
     p->defaults.path = path;

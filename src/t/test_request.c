@@ -162,12 +162,14 @@ static void test_request_http_request_parse(request_st * const r)
                     "\r\n"));
     assert(buffer_eq_slen(r->http_host, CONST_STR_LEN("127.0.0.1")));
 
+  #ifdef HAVE_IPV6
     run_http_request_parse(r, __LINE__, 0,
       "IPv6 address",
       CONST_STR_LEN("GET / HTTP/1.0\r\n"
                     "Host: [::1]\r\n"
                     "\r\n"));
     assert(buffer_eq_slen(r->http_host, CONST_STR_LEN("[::1]")));
+  #endif
 
     run_http_request_parse(r, __LINE__, 0,
       "hostname + port",
@@ -183,12 +185,14 @@ static void test_request_http_request_parse(request_st * const r)
                     "\r\n"));
     assert(buffer_eq_slen(r->http_host, CONST_STR_LEN("127.0.0.1")));
 
+  #ifdef HAVE_IPV6
     run_http_request_parse(r, __LINE__, 0,
       "IPv6 address + port",
       CONST_STR_LEN("GET / HTTP/1.0\r\n"
                     "Host: [::1]:80\r\n"
                     "\r\n"));
     assert(buffer_eq_slen(r->http_host, CONST_STR_LEN("[::1]")));
+  #endif
 
     run_http_request_parse(r, __LINE__, 400,
       "directory traversal",
@@ -276,6 +280,7 @@ static void test_request_http_request_parse(request_st * const r)
                     "Host: 192.168.2:1234\r\n"
                     "\r\n"));
 
+  #ifdef HAVE_IPV6
     run_http_request_parse(r, __LINE__, 400,
       "IPv6 address + SQL injection",
       CONST_STR_LEN("GET / HTTP/1.0\r\n"
@@ -287,6 +292,7 @@ static void test_request_http_request_parse(request_st * const r)
       CONST_STR_LEN("GET / HTTP/1.0\r\n"
                     "Host: [::1]/../../../\r\n"
                     "\r\n"));
+  #endif
 
     run_http_request_parse(r, __LINE__, 400,
       "negative Content-Length",

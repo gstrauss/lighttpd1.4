@@ -27,6 +27,30 @@ static void test_mod_evhost_build_doc_root_path(void) {
     buffer *authority = buffer_init();
     buffer *b = buffer_init();
     array *a = array_init(0);
+  #ifdef _WIN32
+    struct ttt tt1[] = {  /* "host.example.org" */
+      /* correct pattern not using dot notation */
+      { CONST_STR_LEN("\\web\\%3\\"),
+        CONST_STR_LEN("\\web\\host\\") }
+      /* correct pattern using dot notation */
+     ,{ CONST_STR_LEN("\\web\\%{3.1}\\%{3.2}\\%3\\"),
+        CONST_STR_LEN("\\web\\h\\o\\host\\") }
+      /* other pattern 1 */
+     ,{ CONST_STR_LEN("\\web\\%{3.0}\\"),
+        CONST_STR_LEN("\\web\\host\\") }
+      /* other pattern 2 */
+     ,{ CONST_STR_LEN("\\web\\%3.\1\\"),
+        CONST_STR_LEN("\\web\\host.\1\\") }
+     ,{ CONST_STR_LEN("\\web\\%0\\"),
+        CONST_STR_LEN("\\web\\example.org\\") }
+    }, tt2[] = {          /* "example" */
+      { CONST_STR_LEN("\\web\\%0"),
+        CONST_STR_LEN("\\web\\example\\") }
+    }, tt3[] = {          /* "[::1]:80" */
+      { CONST_STR_LEN("\\web\\%0"),
+        CONST_STR_LEN("\\web\\[::1]\\") }
+    };
+  #else
     struct ttt tt1[] = {  /* "host.example.org" */
       /* correct pattern not using dot notation */
       { CONST_STR_LEN("/web/%3/"),
@@ -49,6 +73,7 @@ static void test_mod_evhost_build_doc_root_path(void) {
       { CONST_STR_LEN("/web/%0"),
         CONST_STR_LEN("/web/[::1]/") }
     };
+  #endif
 
     array_reset_data_strings(a);
     buffer_copy_string_len(authority, CONST_STR_LEN("host.example.org"));

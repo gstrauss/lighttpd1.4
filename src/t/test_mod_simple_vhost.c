@@ -13,19 +13,36 @@ static void test_mod_simple_vhost_build_doc_root_path(void) {
     buffer *droot = buffer_init();
     buffer *result= buffer_init();
 
+  #ifdef _WIN32
+    buffer_copy_string_len(sroot, CONST_STR_LEN("\\sroot\\a\\"));
+    buffer_copy_string_len(droot, CONST_STR_LEN("\\droot\\b\\"));
+  #else
     buffer_copy_string_len(sroot, CONST_STR_LEN("/sroot/a/"));
-    buffer_copy_string_len(host,  CONST_STR_LEN("www.example.org"));
     buffer_copy_string_len(droot, CONST_STR_LEN("/droot/b/"));
+  #endif
+    buffer_copy_string_len(host,  CONST_STR_LEN("www.example.org"));
     build_doc_root_path(result, sroot, host, droot);
+  #ifdef _WIN32
+    assert(buffer_eq_slen(result, CONST_STR_LEN("\\sroot\\a\\www.example.org\\droot\\b\\")));
+  #else
     assert(buffer_eq_slen(result, CONST_STR_LEN("/sroot/a/www.example.org/droot/b/")));
+  #endif
 
     buffer_copy_string_len(host,  CONST_STR_LEN("www.example.org:8080"));
     build_doc_root_path(result, sroot, host, droot);
+  #ifdef _WIN32
+    assert(buffer_eq_slen(result, CONST_STR_LEN("\\sroot\\a\\www.example.org\\droot\\b\\")));
+  #else
     assert(buffer_eq_slen(result, CONST_STR_LEN("/sroot/a/www.example.org/droot/b/")));
+  #endif
 
     buffer_copy_string_len(droot, CONST_STR_LEN(""));
     build_doc_root_path(result, sroot, host, droot);
+  #ifdef _WIN32
+    assert(buffer_eq_slen(result, CONST_STR_LEN("\\sroot\\a\\www.example.org\\")));
+  #else
     assert(buffer_eq_slen(result, CONST_STR_LEN("/sroot/a/www.example.org/")));
+  #endif
 
     buffer_free(sroot);
     buffer_free(host);

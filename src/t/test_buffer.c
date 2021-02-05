@@ -117,6 +117,34 @@ static void test_buffer_string_space(void) {
 static void test_buffer_append_path_len(void) {
 	buffer *b = buffer_init();
 
+  #ifdef _WIN32
+	buffer_append_path_len(b, CONST_STR_LEN("a"));
+	assert(buffer_eq_slen(b, CONST_STR_LEN("\\a")));
+	buffer_clear(b);
+	buffer_append_path_len(b, CONST_STR_LEN("a"));
+	assert(buffer_eq_slen(b, CONST_STR_LEN("\\a")));
+	buffer_clear(b);
+	buffer_append_path_len(b, CONST_STR_LEN("\\a"));
+	assert(buffer_eq_slen(b, CONST_STR_LEN("\\a")));
+	buffer_copy_string_len(b, CONST_STR_LEN("\\"));
+	buffer_append_path_len(b, CONST_STR_LEN("a"));
+	assert(buffer_eq_slen(b, CONST_STR_LEN("\\a")));
+	buffer_copy_string_len(b, CONST_STR_LEN("\\"));
+	buffer_append_path_len(b, CONST_STR_LEN("\\a"));
+	assert(buffer_eq_slen(b, CONST_STR_LEN("\\a")));
+	buffer_copy_string_len(b, CONST_STR_LEN("a"));
+	buffer_append_path_len(b, CONST_STR_LEN("a"));
+	assert(buffer_eq_slen(b, CONST_STR_LEN("a\\a")));
+	buffer_copy_string_len(b, CONST_STR_LEN("a\\"));
+	buffer_append_path_len(b, CONST_STR_LEN("a"));
+	assert(buffer_eq_slen(b, CONST_STR_LEN("a\\a")));
+	buffer_copy_string_len(b, CONST_STR_LEN("a\\"));
+	buffer_append_path_len(b, CONST_STR_LEN("\\a"));
+	assert(buffer_eq_slen(b, CONST_STR_LEN("a\\a")));
+	buffer_copy_string_len(b, CONST_STR_LEN("\\a\\"));
+	buffer_append_path_len(b, CONST_STR_LEN("\\a"));
+	assert(buffer_eq_slen(b, CONST_STR_LEN("\\a\\a")));
+  #else
 	buffer_append_path_len(b, CONST_STR_LEN("a"));
 	assert(buffer_eq_slen(b, CONST_STR_LEN("/a")));
 	buffer_clear(b);
@@ -143,6 +171,7 @@ static void test_buffer_append_path_len(void) {
 	buffer_copy_string_len(b, CONST_STR_LEN("/a/"));
 	buffer_append_path_len(b, CONST_STR_LEN("/a"));
 	assert(buffer_eq_slen(b, CONST_STR_LEN("/a/a")));
+  #endif
 
 	buffer_free(b);
 }
