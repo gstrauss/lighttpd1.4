@@ -155,7 +155,7 @@
  */
 
 
-/* linkat() fstatat() unlinkat() fdopendir() NAME_MAX */
+/* linkat() fstatat() unlinkat() fdopendir() */
 #if !defined(_XOPEN_SOURCE) || _XOPEN_SOURCE-0 < 700
 #undef  _XOPEN_SOURCE
 #define _XOPEN_SOURCE 700
@@ -175,7 +175,9 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include "sys-time.h"
+#ifndef _WIN32
 #include <dirent.h>
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>      /* rename() */
@@ -205,6 +207,137 @@
 #ifndef _ATFILE_SOURCE
 /*(trigger linkat() fail to fallback logic in mod_webdav.c)*/
 #define linkat(odfd,opath,ndfd,npath,flags) -1
+#endif
+
+#ifdef _WIN32
+#ifndef DT_UNKNOWN
+#define DT_UNKNOWN 0
+#endif
+#ifndef DT_FIFO
+#define DT_FIFO 1
+#endif
+#ifndef DT_CHR
+#define DT_CHR 2
+#endif
+#ifndef DT_DIR
+#define DT_DIR 4
+#endif
+#ifndef DT_BLK
+#define DT_BLK 6
+#endif
+#ifndef DT_REG
+#define DT_REG 8
+#endif
+#ifndef DT_LNK
+#define DT_LNK 10
+#endif
+#ifndef DT_SOCK
+#define DT_SOCK 12
+#endif
+#ifndef DT_WHT
+#define DT_WHT 14
+#endif
+#ifndef _DIRENT_HAVE_D_NAMLEN
+#define _DIRENT_HAVE_D_NAMLEN 1
+#endif
+#ifndef _DIRENT_HAVE_D_TYPE
+#define _DIRENT_HAVE_D_TYPE 1
+#endif
+#ifndef DTTOIF
+#define DTTOIF(d_type) (((mode_t)(d_type)) << 12)
+#endif
+/* minimal implementation for mod_webdav to walk directory */
+struct dirent {
+    char *d_name;
+    uint8_t d_type;
+    uint16_t d_namlen;
+};
+struct DIR {
+    int first;
+    int last_error;
+    HANDLE hFind;
+    struct dirent de;
+    WIN32_FIND_DATA ffd;
+};
+typedef struct DIR DIR;
+
+static int
+closedir (DIR * const dirp)
+{
+    if (!dirp) {
+        errno = EBADF;
+        return -1;
+    }
+    FindClose(dirp->hFind);
+    free(dirp);
+    return 0;
+}
+
+static DIR *
+opendir (const char *name)
+{
+    char path[PATH_MAX+1];
+    size_t nlen = strlen(name);
+    if (0 == nlen || nlen >= PATH_MAX-2) return NULL;
+    memcpy(path, name, nlen);
+    if (path[nlen-1] != '\\') path[nlen++] = '\\';
+    path[nlen]   = '*';
+    path[++nlen] = '\0';
+    DIR * const dirp = calloc(1, sizeof(DIR));
+    if (NULL == dirp) return NULL;
+    dirp->first = 1;
+    dirp->hFind = FindFirstFile(path, &dirp->ffd);
+    if (INVALID_HANDLE_VALUE == dirp->hFind) {
+        if (GetLastError() != ERROR_FILE_NOT_FOUND) {
+            free(dirp);
+            return NULL;
+        }
+        dirp->last_error = ERROR_NO_MORE_FILES;
+    } /* else dirp->last_error = 0 */
+    return dirp;
+}
+
+static struct dirent *
+readdir (DIR * const dirp)
+{
+    struct dirent * const de = &dirp->de;
+    WIN32_FIND_DATA * const ffd = &dirp->ffd;
+
+    do {
+        if (!dirp->first) {
+            if (0 == FindNextFile(dirp->hFind, ffd))
+                dirp->last_error = GetLastError();
+        }
+        else
+            dirp->first = 0;
+
+        if (dirp->last_error)
+            return NULL;
+
+        const uint32_t dsz = (uint32_t)strlen(ffd->cFileName);
+        if (dsz < UINT16_MAX) {
+            de->d_namlen = (uint16_t)dsz;
+            de->d_name = ffd->cFileName;
+            if ((ffd->dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+                 == FILE_ATTRIBUTE_REPARSE_POINT)
+                de->d_type = DT_LNK;
+                /* XXX: incomplete; need to check for IO_REPARSE_TAG_SYMLINK */
+            else if ((ffd->dwFileAttributes & FILE_ATTRIBUTE_DEVICE)
+                     == FILE_ATTRIBUTE_DEVICE)
+                de->d_type = DT_CHR;
+            else if ((ffd->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                     == FILE_ATTRIBUTE_DIRECTORY)
+                de->d_type = DT_DIR;
+            else
+                de->d_type = DT_REG;
+        }
+        else /*(ignore excessively long names)*/
+            de->d_namlen = 0;
+
+    } while (0 == de->d_namlen);
+
+    return de;
+}
 #endif
 
 #ifndef _D_EXACT_NAMLEN
@@ -2354,7 +2487,7 @@ webdav_delete_dir (const plugin_config * const pconf,
      * so be sure to restore to base each loop iter */
     const uint32_t dst_path_used     = dst->path.used;
     const uint32_t dst_rel_path_used = dst->rel_path.used;
-    int s_isdir;
+    int s_isdir = 0;
     struct dirent *de;
     while (NULL != (de = readdir(dir))) {
         if (de->d_name[0] == '.'
@@ -2875,7 +3008,7 @@ webdav_copymove_dir (const plugin_config * const pconf,
         webdav_xml_response_status(b, &src->rel_path, 403);
         return 403; /* Forbidden */
     }
-    mode_t d_type;
+    mode_t d_type = 0;
     int multi_status = 0;
     struct dirent *de;
     while (NULL != (de = readdir(srcdir))) {
