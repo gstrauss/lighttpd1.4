@@ -27,6 +27,12 @@
 #include <fcntl.h>
 #include <signal.h>
 
+/* _WIN32 custom socketpair() is used here instead of pipe() */
+#ifdef _WIN32
+// TODO: add #includes for winsock2.h ws2tcpip.h io.h as appropriate
+#define close(fd) closesocket(fd)
+#endif
+
 typedef struct {
 	char *ptr;
 	size_t used;
@@ -300,7 +306,11 @@ static void cgi_connection_close_fdtocgi(handler_ctx *hctx) {
 	struct fdevents * const ev = hctx->ev;
 	fdevent_fdnode_event_del(ev, hctx->fdntocgi);
 	/*fdevent_unregister(ev, hctx->fdtocgi);*//*(handled below)*/
+  #ifdef _WIN32
+	fdevent_sched_close(ev, hctx->fdtocgi, 1);
+  #else
 	fdevent_sched_close(ev, hctx->fdtocgi, 0);
+  #endif
 	hctx->fdntocgi = NULL;
 	hctx->fdtocgi = -1;
 }
@@ -317,7 +327,11 @@ static void cgi_connection_close(handler_ctx *hctx) {
 		/* close connection to the cgi-script */
 		fdevent_fdnode_event_del(ev, hctx->fdn);
 		/*fdevent_unregister(ev, hctx->fd);*//*(handled below)*/
+	  #ifdef _WIN32
+		fdevent_sched_close(ev, hctx->fd, 1);
+	  #else
 		fdevent_sched_close(ev, hctx->fd, 0);
+	  #endif
 		hctx->fdn = NULL;
 	}
 
@@ -529,14 +543,23 @@ static int cgi_env_add(void *venv, const char *key, size_t key_len, const char *
 static int cgi_write_request(handler_ctx *hctx, int fd) {
 	request_st * const r = hctx->r;
 	chunkqueue *cq = &r->reqbody_queue;
-	chunk *c;
 
 	chunkqueue_remove_finished_chunks(cq); /* unnecessary? */
 
 	/* old comment: windows doesn't support select() on pipes - wouldn't be easy to fix for all platforms.
 	 */
 
-	for (c = cq->first; c; c = cq->first) {
+  #ifdef _WIN32
+	if (0 !=
+	    r->con->srv->network_backend_write(fd,cq,MAX_WRITE_LIMIT,r->conf.errh)){
+		/* connection closed */
+		log_error(r->conf.errh, __FILE__, __LINE__,
+		  "failed to send post data to cgi, connection closed by CGI");
+		/* skip all remaining data */
+		chunkqueue_mark_written(cq, chunkqueue_length(cq));
+	}
+  #else
+	for (chunk *c = cq->first; c; c = cq->first) {
 		ssize_t wr = chunkqueue_write_chunk_to_pipe(fd, cq, r->conf.errh);
 		if (wr > 0) {
 			chunkqueue_mark_written(cq, wr);
@@ -569,6 +592,7 @@ static int cgi_write_request(handler_ctx *hctx, int fd) {
 		/*if (0 == wr) break;*/ /*(might block)*/
 		break;
 	}
+  #endif
 
 	if (cq->bytes_out == (off_t)r->reqbody_length && !hctx->conf.upgrade) {
 		/* sent all request body input */
@@ -623,6 +647,18 @@ static int cgi_create_env(request_st * const r, plugin_data * const p, handler_c
 		}
 	}
 
+  #ifdef _WIN32
+	if (0 != fdevent_socketpair_nb_cloexec(AF_INET,SOCK_STREAM,0,to_cgi_fds)) {
+		log_perror(r->conf.errh, __FILE__, __LINE__, "socketpair()");
+		return -1;
+	}
+	if (0 != fdevent_socketpair_nb_cloexec(AF_INET,SOCK_STREAM,0,from_cgi_fds)) {
+		close(to_cgi_fds[0]);
+		close(to_cgi_fds[1]);
+		log_perror(r->conf.errh, __FILE__, __LINE__, "socketpair()");
+		return -1;
+	}
+  #else
 	unsigned int bufsz_hint = 16384;
   #ifdef _WIN32
 	if (r->reqbody_length <= 1048576)
@@ -638,6 +674,7 @@ static int cgi_create_env(request_st * const r, plugin_data * const p, handler_c
 		log_perror(r->conf.errh, __FILE__, __LINE__, "pipe failed");
 		return -1;
 	}
+  #endif
 
 	{
 		size_t i = 0;
@@ -685,6 +722,16 @@ static int cgi_create_env(request_st * const r, plugin_data * const p, handler_c
 	}
 
   #ifdef _WIN32
+	/* child process should inherit blocking sockets for consistency */
+	u_long ul = 0;
+	ioctlsocket(to_cgi_fds[0],   FIONBIO, &ul);
+	ul = 0;
+	ioctlsocket(from_cgi_fds[1], FIONBIO, &ul);
+	SetHandleInformation((HANDLE)_get_osfhandle(to_cgi_fds[0]),
+	                     HANDLE_FLAG_INHERIT, 0);
+	SetHandleInformation((HANDLE)_get_osfhandle(from_cgi_fds[1]),
+	                     HANDLE_FLAG_INHERIT, 0);
+
 	dfd = -2; /*(flag to chdir to script dir on _WIN32)*/
 	int serrh_fd = r->conf.serrh ? r->conf.serrh->errorlog_fd : -1;
 	hctx->pid = fdevent_fork_execve(args[0], args, p->env.eptr, to_cgi_fds[0], from_cgi_fds[1], serrh_fd, dfd);
