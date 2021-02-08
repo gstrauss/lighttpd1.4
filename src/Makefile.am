@@ -71,7 +71,7 @@ CLEANFILES = versionstamp.h versionstamp.h.tmp lemon$(BUILD_EXEEXT)
 
 common_src=base64.c buffer.c burl.c log.c \
 	http_header.c http_kv.c keyvalue.c chunk.c  \
-	http_chunk.c fdevent.c gw_backend.c \
+	http_chunk.c fdevent.c fdevent_w32.c gw_backend.c \
 	stat_cache.c plugin.c http_etag.c array.c \
 	data_string.c data_array.c \
 	data_integer.c \
