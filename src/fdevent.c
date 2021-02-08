@@ -809,6 +809,119 @@ int fdevent_rename(const char *oldpath, const char *newpath) {
 }
 
 
+#if defined(_WIN32)
+static pid_t fdevent_createprocess(char *argv[], char *envp[], int fdin, int fdout, int fderr, int dfd) {
+    /*
+     * The Microsoft CreateProcess() interface is criminally broken.
+     * Forcing argument strings to be concatenated into a single string
+     * only to be re-parsed by Windows can lead to security issues.
+     *
+     * XXX: security exposure from mod_cgi and mod_ssi arguments
+     *      constructed to path names from user-provided URLs
+     *
+     * FIXME: TODO: How and when should arguments be escaped and quoted?
+     */
+
+    size_t len = 0;
+    char *dirp = NULL;
+    if (0 == strcmp(argv[0],"/bin/sh") && argv[1] && 0 == strcmp(argv[1],"-c")){
+        *(const char **)&argv[0] = "cmd.exe";
+        *(const char **)&argv[1] = "/c";
+    }
+    else if (-2 == dfd /*(flag to chdir to directory containing argv[0])*/
+             && (argv[0][0] == '\\' || argv[0][0] == '/' || argv[0][1] == ':')){
+        char *sl = strrchr(argv[0], '/');
+        char *bs = strrchr(argv[0], '\\');
+        if (sl < bs) sl = bs;
+        if (sl && sl != argv[0]) {
+            len = (size_t)(sl - argv[0]);
+            dirp = malloc(len--);
+            if (NULL == dirp)
+                return -1;
+            memcpy(dirp, argv[0], len);
+            dirp[len] = '\0';
+        }
+    }
+
+    char *args = NULL;
+    len = 0;
+    for (int i = 1; argv[i]; ++i)
+        len += strlen(argv[i]) + 1;
+    if (len) {
+        args = malloc(len);
+        if (NULL == args) {
+            free(dirp);
+            return -1;
+        }
+        size_t off = 0;
+        for (int i = 1; argv[i]; ++i) {
+            len = strlen(argv[i]);
+            memcpy(args+off, argv[i], len);
+            off += len;
+            args[off++] = ' ';
+        }
+        args[off-1] = '\0';
+    }
+
+    char *envs = NULL;
+    if (envp) {
+        len = 0;
+        for (int i = 0; envp[i]; ++i)
+            len += strlen(envp[i]) + 1;
+        if (len) {
+            envs = malloc(len+1);
+            if (NULL == envs) {
+                free(dirp);
+                free(args);
+                return -1;
+            }
+            size_t off = 0;
+            for (int i = 1; envp[i]; ++i) {
+                len = strlen(envp[i]) + 1; /*(include '\0')*/
+                memcpy(envs+off, envp[i], len);
+                off += len;
+            }
+            envs[off] = '\0';
+        }
+    }
+
+    STARTUPINFOA sinfo;
+    memset(&sinfo, 0, sizeof(sinfo));
+    sinfo.cb = sizeof(sinfo);
+    sinfo.lpDesktop = NULL;
+    sinfo.lpTitle = argv[0];
+    sinfo.dwFlags = STARTF_FORCEOFFFEEDBACK | STARTF_USESTDHANDLES;
+    sinfo.hStdInput = (HANDLE)_get_osfhandle(fdin >=0 ? fdin  : STDIN_FILENO);
+    sinfo.hStdOutput= (HANDLE)_get_osfhandle(fdout>=0 ? fdout : STDOUT_FILENO);
+    sinfo.hStdError = (HANDLE)_get_osfhandle(fderr>=0 ? fderr : STDERR_FILENO);
+
+    PROCESS_INFORMATION pinfo;
+    pid_t pid = (pid_t)-1;
+    if (CreateProcess(
+          argv[0],
+          args,
+          NULL,
+          NULL,
+          TRUE,
+          NORMAL_PRIORITY_CLASS | CREATE_NO_WINDOW, // ?DETACHED_PROCESS?
+          envs,
+          dirp,
+          &sinfo,
+          &pinfo)) {
+        pid = (pid_t)pinfo.dwProcessId;
+// GPS: TODO: save process handle somewhere, probably indexed by pid?
+//   maybe save in simple list (need to be able to easily remove), not (array *)
+    }
+
+    free(args);
+    free(envs);
+    free(dirp);
+
+    return pid;
+}
+#endif
+
+
 pid_t fdevent_fork_execve(const char *name, char *argv[], char *envp[], int fdin, int fdout, int fderr, int dfd) {
  #ifdef HAVE_FORK
 
@@ -850,6 +963,11 @@ pid_t fdevent_fork_execve(const char *name, char *argv[], char *envp[], int fdin
     else
         perror(argv[0]);
     _exit(errnum);
+
+ #elif defined(_WIN32)
+
+    UNUSED(name);
+    return fdevent_createprocess(argv, envp, fdin, fdout, fderr, dfd);
 
  #else
 

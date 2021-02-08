@@ -684,6 +684,11 @@ static int cgi_create_env(request_st * const r, plugin_data * const p, handler_c
 		args[i  ] = NULL;
 	}
 
+  #ifdef _WIN32
+	dfd = -2; /*(flag to chdir to script dir on _WIN32)*/
+	int serrh_fd = r->conf.serrh ? r->conf.serrh->errorlog_fd : -1;
+	hctx->pid = fdevent_fork_execve(args[0], args, p->env.eptr, to_cgi_fds[0], from_cgi_fds[1], serrh_fd, dfd);
+  #else
 	dfd = fdevent_open_dirname(r->physical.path.ptr, r->conf.follow_symlink);
 	if (-1 == dfd) {
 		log_perror(r->conf.errh, __FILE__, __LINE__, "open dirname %s failed", r->physical.path.ptr);
@@ -691,18 +696,19 @@ static int cgi_create_env(request_st * const r, plugin_data * const p, handler_c
 
 	int serrh_fd = r->conf.serrh ? r->conf.serrh->errorlog_fd : -1;
 	hctx->pid = (dfd >= 0) ? fdevent_fork_execve(args[0], args, p->env.eptr, to_cgi_fds[0], from_cgi_fds[1], serrh_fd, dfd) : -1;
+  #endif
 
 	if (-1 == hctx->pid) {
 		/* log error with errno prior to calling close() (might change errno) */
 		log_perror(r->conf.errh, __FILE__, __LINE__, "fork failed");
-		if (-1 != dfd) close(dfd);
+		if (dfd >= 0) close(dfd);
 		close(from_cgi_fds[0]);
 		close(from_cgi_fds[1]);
 		close(to_cgi_fds[0]);
 		close(to_cgi_fds[1]);
 		return -1;
 	} else {
-		if (-1 != dfd) close(dfd);
+		if (dfd >= 0) close(dfd);
 		close(from_cgi_fds[1]);
 		close(to_cgi_fds[0]);
 

@@ -565,6 +565,12 @@ static int gw_spawn_connection(gw_host * const host, gw_proc * const proc, log_e
             env.ptr[env.used] = NULL;
         }
 
+      #ifdef _WIN32
+	dfd = -2; /*(flag to chdir to script dir on _WIN32)*/
+        proc->pid =
+          fdevent_fork_execve(host->args.ptr[0], host->args.ptr,
+                              env.ptr, gw_fd, -1, -1, dfd);
+      #else
         dfd = fdevent_open_dirname(host->args.ptr[0], 1); /* permit symlinks */
         if (-1 == dfd) {
             log_perror(errh, __FILE__, __LINE__,
@@ -576,10 +582,11 @@ static int gw_spawn_connection(gw_host * const host, gw_proc * const proc, log_e
           ? fdevent_fork_execve(host->args.ptr[0], host->args.ptr,
                                 env.ptr, gw_fd, -1, -1, dfd)
           : -1;
+      #endif
 
         for (i = 0; i < env.used; ++i) free(env.ptr[i]);
         free(env.ptr);
-        if (-1 != dfd) close(dfd);
+        if (dfd >= 0) close(dfd);
         close(gw_fd);
 
         if (-1 == proc->pid) {
