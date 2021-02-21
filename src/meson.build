@@ -796,6 +796,7 @@ modules = [
 	[ 'mod_authn_file', [ 'mod_authn_file.c' ], [ libcrypt, libcrypto ] ],
 	[ 'mod_cgi', [ 'mod_cgi.c' ] ],
 	[ 'mod_deflate', [ 'mod_deflate.c' ], [ libbz2, libz, libzstd, libbrotli, libdeflate ] ],
+	[ 'mod_csrf', [ 'mod_csrf.c' ], [ libcrypto ] ],
 	[ 'mod_dirlisting', [ 'mod_dirlisting.c' ] ],
 	[ 'mod_extforward', [ 'mod_extforward.c' ] ],
 	[ 'mod_h2', [ 'h2.c', 'ls-hpack/lshpack.c', 'algo_xxhash.c' ], [ libxxhash ] ],
