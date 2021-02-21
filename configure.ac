@@ -1699,6 +1699,7 @@ do_build="\
   mod_auth \
   mod_authn_file \
   mod_cgi \
+  mod_csrf \
   mod_deflate \
   mod_dirlisting \
   mod_evhost \

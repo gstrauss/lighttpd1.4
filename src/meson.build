@@ -996,6 +996,7 @@ modules = [
 	[ 'mod_alias', [ 'mod_alias.c' ] ],
 	[ 'mod_auth', [ 'mod_auth.c' ], [ libcrypto ] ],
 	[ 'mod_authn_file', [ 'mod_authn_file.c' ], [ libcrypt, libcrypto ] ],
+	[ 'mod_csrf', [ 'mod_csrf.c' ], [ libcrypto ] ],
 	[ 'mod_deflate', [ 'mod_deflate.c' ], libbz2 + libz + libzstd + libbrotli ],
 	[ 'mod_dirlisting', [ 'mod_dirlisting.c' ], libpcre ],
 	[ 'mod_evasive', [ 'mod_evasive.c' ] ],

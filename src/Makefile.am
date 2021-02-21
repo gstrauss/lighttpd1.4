@@ -219,6 +219,11 @@ mod_vhostdb_dbi_la_LIBADD = $(DBI_LIBS) $(common_libadd)
 mod_vhostdb_dbi_la_CPPFLAGS = $(DBI_CFLAGS)
 endif
 
+lib_LTLIBRARIES += mod_csrf.la
+mod_csrf_la_SOURCES = mod_csrf.c
+mod_csrf_la_LDFLAGS = $(common_module_ldflags)
+mod_csrf_la_LIBADD = $(common_libadd) $(CRYPTO_LIB)
+
 lib_LTLIBRARIES += mod_cgi.la
 mod_cgi_la_SOURCES = mod_cgi.c
 mod_cgi_la_LDFLAGS = $(common_module_ldflags)
@@ -502,6 +507,7 @@ lighttpd_SOURCES = \
   mod_auth.c \
   mod_authn_file.c \
   mod_cgi.c \
+  mod_csrf.c \
   mod_deflate.c \
   mod_dirlisting.c \
   mod_evasive.c \
