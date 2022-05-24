@@ -43,6 +43,11 @@ option('with_ldap',
 	value: 'disabled',
 	description: 'with LDAP-support for mod_auth mod_vhostdb_ldap [default: off]',
 )
+option('with_libmodsecurity',
+	type: 'boolean',
+	value: false,
+	description: 'with libmodsecurity for mod_security3 [default: off]',
+)
 option('with_libunwind',
 	type: 'feature',
 	value: 'disabled',

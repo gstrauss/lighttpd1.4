@@ -1384,6 +1384,39 @@ if test "$WITH_MAXMINDDB" != no; then
 fi
 AM_CONDITIONAL([BUILD_WITH_MAXMINDDB], [test "$WITH_MAXMINDDB" != no])
 
+dnl libmodsecurity
+AC_MSG_NOTICE([----------------------------------------])
+AC_MSG_CHECKING([for libmodsecurity support])
+AC_ARG_WITH([libmodsecurity],
+  [AS_HELP_STRING([--with-libmodsecurity],
+    [Enable system-provided libmodsecurity]
+  )],
+  [WITH_LIBMODSECURITY=$withval],
+  [WITH_LIBMODSECURITY=no]
+)
+AC_MSG_RESULT([$WITH_LIBMODSECURITY])
+
+if test "$WITH_LIBMODSECURITY" != no; then
+  if test "$WITH_LIBMODSECURITY" != yes; then
+    MODSECURITY_LIBS="-L$WITH_LIBMODSECURITY -lmodsecurity"
+    MODSECURITY_CFLAGS="-I$WITH_LIBMODSECURITY"
+  else
+    PKG_CHECK_MODULES([MODSECURITY], [modsecurity], [], [
+      AC_CHECK_LIB([modsecurity], [msc_init],
+        [MODSECURITY_LIBS=-lmodsecurity],
+        [AC_MSG_ERROR([libmodsecurity not found, install it or build without --with-libmodsecurity])]
+      )
+      AC_CHECK_HEADERS([modsecurity/modsecurity.h], [],
+        [AC_MSG_ERROR([modsecurity/modsecurity.h not found, install it or build without --with-libmodsecurity])]
+      )
+    ])
+  fi
+
+  AC_SUBST([MODSECURITY_CFLAGS])
+  AC_SUBST([MODSECURITY_LIBS])
+fi
+AM_CONDITIONAL([BUILD_WITH_MODSECURITY], [test "$WITH_LIBMODSECURITY" != no])
+
 dnl Check for lua
 AC_MSG_NOTICE([----------------------------------------])
 AC_MSG_CHECKING([if lua-support is requested])

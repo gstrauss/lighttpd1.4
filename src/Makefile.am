@@ -185,6 +185,14 @@ mod_vhostdb_dbi_la_LIBADD = $(DBI_LIBS) $(common_libadd)
 mod_vhostdb_dbi_la_CPPFLAGS = $(DBI_CFLAGS)
 endif
 
+#if BUILD_WITH_MODSECURITY
+lib_LTLIBRARIES += mod_security3.la
+mod_security3_la_SOURCES = mod_security3.c
+mod_security3_la_LDFLAGS = $(common_module_ldflags)
+mod_security3_la_LIBADD = $(MODSECURITY_LIBS) $(common_libadd)
+mod_security3_la_CPPFLAGS = $(MODSECURITY_CFLAGS)
+#endif
+
 lib_LTLIBRARIES += mod_cgi.la
 mod_cgi_la_SOURCES = mod_cgi.c
 mod_cgi_la_LDFLAGS = $(common_module_ldflags)

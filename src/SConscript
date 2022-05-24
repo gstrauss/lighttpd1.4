@@ -139,6 +139,9 @@ if env['with_ldap']:
 	modules['mod_authn_ldap'] = { 'src' : [ 'mod_authn_ldap.c' ], 'lib' : [ env['LIBLDAP'], env['LIBLBER'] ] }
 	modules['mod_vhostdb_ldap'] = { 'src' : [ 'mod_vhostdb_ldap.c' ], 'lib' : [ env['LIBLDAP'], env['LIBLBER'] ] }
 
+if env['with_libmodsecurity']:
+	modules['mod_security3'] = { 'src' : [ 'mod_security3.c' ], 'lib' : [ env['LIBMODSECURITY'] ] }
+
 if env['with_lua']:
 	modules['mod_magnet'] = {
 		'src' : [ 'mod_magnet.c', 'mod_magnet_cache.c', 'algo_hmac.c' ],

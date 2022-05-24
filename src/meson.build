@@ -286,6 +286,8 @@ conf_data.set('HAVE_LIBLBER', liblber.found())
 libpam = compiler.find_library('pam', required: get_option('with_pam'))
 conf_data.set('HAVE_PAM', libpam.found())
 
+libmodsecurity = compiler.find_library('modsecurity', required: get_option('with_libmodsecurity'))
+
 libunwind = dependency('libunwind', required: get_option('with_libunwind'))
 
 liblua = []
@@ -920,6 +922,12 @@ endif
 if libsasl.found()
 	modules += [
 		[ 'mod_authn_sasl', [ 'mod_authn_sasl.c' ], libsasl ],
+	]
+endif
+
+if get_option('with_libmodsecurity')
+	modules += [
+		[ 'mod_security3', [ 'mod_security3.c' ], libmodsecurity ],
 	]
 endif
 
