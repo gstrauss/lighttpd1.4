@@ -43,6 +43,11 @@ option('with_libev',
 	value: 'disabled',
 	description: 'libev support for fdevent handlers [default: off]',
 )
+option('with_libmodsecurity',
+	type: 'boolean',
+	value: false,
+	description: 'with libmodsecurity for mod_security3 [default: off]',
+)
 option('with_libunwind',
 	type: 'feature',
 	value: 'disabled',
