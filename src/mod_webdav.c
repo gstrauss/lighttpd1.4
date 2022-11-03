@@ -4633,7 +4633,7 @@ mod_webdav_put_0 (request_st * const r, const plugin_config * const pconf)
 
 
 static handler_t
-mod_webdav_put_prep (request_st * const r, const plugin_config * const pconf)
+mod_webdav_put_prep (request_st * const r, plugin_config * const pconf)
 {
     if (buffer_has_pathsep_suffix(&r->physical.path)) {
         /* disallow PUT on a collection (path ends in '/') */
@@ -4934,21 +4934,8 @@ mod_webdav_put_range (request_st * const r, const buffer * const h,
 
 
 static handler_t
-mod_webdav_put (request_st * const r, const plugin_config * const pconf)
+mod_webdav_put_impl (request_st * const r, const plugin_config * const pconf)
 {
-    if (r->state == CON_STATE_READ_POST) {
-        int first_read = chunkqueue_is_empty(&r->reqbody_queue);
-        handler_t rc = r->con->reqbody_read(r);
-        if (rc != HANDLER_GO_ON) {
-            if (first_read && rc == HANDLER_WAIT_FOR_EVENT
-                && 0 != webdav_if_match_or_unmodified_since(r, NULL)) {
-                http_status_set_error(r, 412); /* Precondition Failed */
-                return HANDLER_FINISHED;
-            }
-            return rc;
-        }
-    }
-
     if (0 != webdav_if_match_or_unmodified_since(r, NULL)) {
         http_status_set_error(r, 412); /* Precondition Failed */
         return HANDLER_FINISHED;
@@ -5062,6 +5049,38 @@ mod_webdav_put (request_st * const r, const plugin_config * const pconf)
         unlink(pathtemp);
 
     return HANDLER_FINISHED;
+}
+
+
+static handler_t
+mod_webdav_put (request_st * const r, const plugin_config * const pconf)
+{
+    handler_t rc = HANDLER_GO_ON;
+
+    do {
+
+        if (r->state == CON_STATE_READ_POST) {
+            int first_read = chunkqueue_is_empty(&r->reqbody_queue);
+            if ((rc = r->con->reqbody_read(r)) == HANDLER_WAIT_FOR_EVENT) {
+                if (first_read
+                    && 0 != webdav_if_match_or_unmodified_since(r, NULL)) {
+                    http_status_set_error(r, 412); /* Precondition Failed */
+                    rc = HANDLER_FINISHED;
+                    break;
+                }
+            }
+            else if (rc != HANDLER_GO_ON)
+                break;
+        }
+
+        if (rc == HANDLER_WAIT_FOR_EVENT)
+            return rc; /* HANDLER_WAIT_FOR_EVENT */
+
+        rc = mod_webdav_put_impl(r, pconf);
+
+    } while (0);
+
+    return rc;
 }
 
 
@@ -6170,8 +6189,9 @@ PHYSICALPATH_FUNC(mod_webdav_physical_handler)
     /* initial setup for methods */
     switch (r->http_method) {
       case HTTP_METHOD_PUT:
-        if (mod_webdav_put_prep(r, &pconf) == HANDLER_FINISHED)
+        if (mod_webdav_put_prep(r, &pconf) == HANDLER_FINISHED) {
             return HANDLER_FINISHED;
+        }
         break;
       default:
         break;
