@@ -251,6 +251,7 @@ typedef off_t loff_t;
 #endif /* defined(HAVE_LIBXML_H) && defined(HAVE_SQLITE3_H) */
 #endif /* MOD_WEBDAV_BUILD_MINIMAL */
 
+#include "algo_md.h"    /* dekhash() */
 #include "base.h"
 #include "buffer.h"
 #include "chunk.h"
@@ -375,6 +376,11 @@ enum { /* opts bitflags */
  ,MOD_WEBDAV_UNSAFE_PROPFIND_FOLLOW_SYMLINK = 0x2
  ,MOD_WEBDAV_PROPFIND_DEPTH_INFINITY        = 0x4
  ,MOD_WEBDAV_CPYTMP_PARTIAL_PUT             = 0x8
+ ,MOD_WEBDAV_MSDAVEXT                       = 0x0010
+ ,MOD_WEBDAV_MSDAVEXT_PROPPATCH             = 0x0020
+ ,MOD_WEBDAV_MSDAVEXT_LOCK_TOKEN            = 0x0040
+ ,MOD_WEBDAV_MSDAVEXT_LOCK_CREATE           = 0x0080
+ ,MOD_WEBDAV_MSDAVEXT_FILE_CREATE           = 0x0100
 };
 
 typedef struct {
@@ -576,6 +582,12 @@ SETDEFAULTS_FUNC(mod_webdav_set_defaults) {
                             opts |= MOD_WEBDAV_CPYTMP_PARTIAL_PUT;
                             continue;
                         }
+                        if (buffer_eq_slen(&ds->key,
+                              CONST_STR_LEN("msdavext"))
+                            && config_plugin_value_tobool((data_unset *)ds,0)) {
+                            opts |= MOD_WEBDAV_MSDAVEXT;
+                            continue;
+                        }
                         log_error(srv->errh, __FILE__, __LINE__,
                                   "unrecognized webdav.opts: %s", ds->key.ptr);
                         return HANDLER_ERROR;
@@ -659,6 +671,11 @@ URIHANDLER_FUNC(mod_webdav_uri_handler)
           CONST_STR_LEN(
             "PROPFIND, DELETE, MKCOL, PUT, MOVE, COPY")
         );
+
+    if (pconf.opts & MOD_WEBDAV_MSDAVEXT)
+        http_header_response_set(r, HTTP_HEADER_OTHER,
+                                 CONST_STR_LEN("X-MSDAVEXT"),
+                                 CONST_STR_LEN("1"));
 
     return HANDLER_GO_ON;
 }
@@ -4632,9 +4649,16 @@ mod_webdav_put_0 (request_st * const r, const plugin_config * const pconf)
 }
 
 
+__attribute_noinline__
+static handler_t
+mod_webdav_msdavext_put_prep (request_st * const r, plugin_config * const pconf);
+
+
 static handler_t
 mod_webdav_put_prep (request_st * const r, plugin_config * const pconf)
 {
+    /* pconf should not be modified except in mod_webdav_msdavext_put_prep() */
+
     if (buffer_has_pathsep_suffix(&r->physical.path)) {
         /* disallow PUT on a collection (path ends in '/') */
         http_status_set_error(r, 400); /* Bad Request */
@@ -4654,6 +4678,13 @@ mod_webdav_put_prep (request_st * const r, plugin_config * const pconf)
          */
         http_status_set_error(r, 400); /* Bad Request */
         return HANDLER_FINISHED;
+    }
+
+    if (pconf->opts & MOD_WEBDAV_MSDAVEXT) {
+        if (mod_webdav_msdavext_put_prep(r, pconf) == HANDLER_FINISHED)
+            return HANDLER_FINISHED;
+        if (pconf->opts & MOD_WEBDAV_MSDAVEXT_PROPPATCH)
+            return HANDLER_GO_ON;
     }
 
     /* special-case PUT 0-length file */
@@ -5052,6 +5083,15 @@ mod_webdav_put_impl (request_st * const r, const plugin_config * const pconf)
 }
 
 
+__attribute_noinline__
+static handler_t
+mod_webdav_msdavext_proppatch_prep (request_st * const r, const plugin_config * const pconf);
+
+__attribute_noinline__
+static void
+mod_webdav_msdavext_put_fin (request_st * const r, const plugin_config * const pconf);
+
+
 static handler_t
 mod_webdav_put (request_st * const r, const plugin_config * const pconf)
 {
@@ -5073,12 +5113,23 @@ mod_webdav_put (request_st * const r, const plugin_config * const pconf)
                 break;
         }
 
+        if (pconf->opts & MOD_WEBDAV_MSDAVEXT_PROPPATCH) {
+            handler_t rc2 = mod_webdav_msdavext_proppatch_prep(r, pconf);
+            if (rc2 != HANDLER_GO_ON) {
+                rc = rc2;
+                break;
+            }
+        }
+
         if (rc == HANDLER_WAIT_FOR_EVENT)
             return rc; /* HANDLER_WAIT_FOR_EVENT */
 
         rc = mod_webdav_put_impl(r, pconf);
 
     } while (0);
+
+    if (pconf->opts & MOD_WEBDAV_MSDAVEXT)
+        mod_webdav_msdavext_put_fin(r, pconf);
 
     return rc;
 }
@@ -5464,6 +5515,11 @@ mod_webdav_copymove (request_st * const r, const plugin_config * const pconf)
 static handler_t
 mod_webdav_proppatch (request_st * const r, const plugin_config * const pconf)
 {
+  if (r->http_method == HTTP_METHOD_PROPPATCH) {
+    /* skip these checks if already performed for MSDAVEXT PUT
+     * (need to skip webdav_if_match_or_unmodified_since() below
+     *  after new file has been PUT into place) */
+
     if (!pconf->sql)
         return webdav_405_no_db(r);
 
@@ -5506,6 +5562,8 @@ mod_webdav_proppatch (request_st * const r, const plugin_config * const pconf)
         http_status_set_error(r, 403);
         return HANDLER_FINISHED;
     }
+
+  } /* (r->http_method == HTTP_METHOD_PROPPATCH) */
 
     xmlDocPtr const xml = webdav_parse_chunkqueue(r, pconf);
     if (NULL == xml) {
@@ -6108,6 +6166,11 @@ SUBREQUEST_FUNC(mod_webdav_subrequest_handler)
 }
 
 
+__attribute_noinline__
+static handler_t
+mod_webdav_msdavext_fetch (request_st * const r, const plugin_config * const pconf);
+
+
 PHYSICALPATH_FUNC(mod_webdav_physical_handler)
 {
     /* physical path is set up */
@@ -6125,6 +6188,7 @@ PHYSICALPATH_FUNC(mod_webdav_physical_handler)
       case HTTP_METHOD_GET:
       case HTTP_METHOD_HEAD:
       case HTTP_METHOD_POST:
+        break;
       default:
         return HANDLER_GO_ON;
       case HTTP_METHOD_PROPFIND:
@@ -6188,8 +6252,16 @@ PHYSICALPATH_FUNC(mod_webdav_physical_handler)
 
     /* initial setup for methods */
     switch (r->http_method) {
+      case HTTP_METHOD_GET:
+      case HTTP_METHOD_HEAD:
+      case HTTP_METHOD_POST:
+        return (pconf.opts & MOD_WEBDAV_MSDAVEXT)
+          ? mod_webdav_msdavext_fetch(r, &pconf)
+          : HANDLER_GO_ON;
       case HTTP_METHOD_PUT:
         if (mod_webdav_put_prep(r, &pconf) == HANDLER_FINISHED) {
+            if (pconf.opts & MOD_WEBDAV_MSDAVEXT)
+                mod_webdav_msdavext_put_fin(r, &pconf);
             return HANDLER_FINISHED;
         }
         break;
@@ -6222,4 +6294,877 @@ REQUEST_FUNC(mod_webdav_handle_reset) {
         chunkqueue_set_tempdirs(&r->reqbody_queue, 0); /* reset sz */
     }
     return HANDLER_GO_ON;
+}
+
+
+/* MS-WDV (Microsoft WebDAV extensions)
+ * https://winprotocoldoc.blob.core.windows.net/productionwindowsarchives/MS-WDV/%5bMS-WDV%5d.pdf
+ *
+ * The MS spec reads as if it were written *after* the MS code was written.
+ * The extensions may be construed as sloppy extensions; not fully specified.
+ *
+ * Notes: (incomplete)
+ *
+ * MS-WDV was written long before HTTP/2.
+ * HTTP/2 might address some of the efficiency goals of MS-WDV.
+ *
+ * The MS spec is oblivious to the "Vary" header, making no mention of it.
+ * The MS spec mentions "Cache-Control: private" only in examples.
+ *
+ * The MS spec does not provide ownerinfo to attach to Lock-Token request
+ *   (e.g. when X-MSDAVEXTLockTimeout is specified in request)
+ *
+ * The MS spec does not mention any support for partial-PUT or PATCH
+ * (which is an obvious oversight considering the efficiency goals of MS-WDV)
+ *
+ * The MS spec combines multiple request methods for efficiency, but chose not
+ * to extend 207 Multi-status response to convey multiple status.
+ *
+ * The MS spec adds ability to request issue of locks, refresh locks, or unlock.
+ * Other than unlock, success is indicated by response headers.  However, the
+ * MS spec does not specify if these response headers should or should not be
+ * valid if received in HTTP error responses (HTTP status >= 400).  To create
+ * a file, should a client be able to GET (e.g. check if file already exists)
+ * and request a lock?  If file does not exist, should that be 404 Not Found or
+ * should it be 201 Created along with a lock?  (Current behavior in lighttpd
+ * mod_webdav is 404 Not Found.)
+ *
+ * The MS spec does not specify to what ETag applies, e.g. in the case where
+ * PUT might return ETag for file along with 201 Created or 204 No Content.
+ * Should ETag for file be included along with request X-MSDAVEXT: PROPPATCH if
+ * the response body to PUT is 207 Multi-status with PROPPATCH results?  (No.)
+ * Similarly, ETag for response with "multipart/MSDAVEXTPrefixEncoded" is for
+ * the combined response, and so the ETag can not easily be used for conditional
+ * requests since lighttpd mod_webdav does not recalculate that MS-specific ETag
+ * (combining properties and file resource) for every conditional request.
+ * Instead, lighttpd mod_webdav calculates the ETag for the file resource for
+ * comparision to conditional requests.
+ *
+ * The MS spec does not specify response type to PUT, and so might lose the
+ * distinction between 201 Created and 204 No Content if the server responds
+ * with 207 Multi-status PROPPATCH results.
+ *
+ * The MS spec for Content-Type: "multipart/MSDAVEXTPrefixEncoded" is too
+ * simplistic and does not specify the Content-Type of the <File-contents>
+ * part of "multipart/MSDAVEXTPrefixEncoded".  (Content-Encoding would apply
+ * to the entire request body of "multipart/MSDAVEXTPrefixEncoded".)
+ * This limitation will not be able to directly leverage Client-Initiated
+ * Content-Encoding.  (Separate content-sniffing might be an alternative.)
+ */
+
+
+#ifdef USE_LOCKS
+static handler_t
+mod_webdav_msdavext_locks (request_st * const r, const plugin_config * const pconf)
+{
+    /* MS-WDV does not fully specify how to treat request body for GET,HEAD,POST
+     *
+     * A request body could be specified with LOCK.  However, MS-WDV section
+     * 3.2.5.2 notes GET,HEAD,POST with Lock-Token and X-MSDAVEXTLockTimeout
+     * "MUST fail the request ... if the file is locked by a different user."
+     * which implies locktype write and lockscope exclusive instead of shared,
+     * and since the target resource is a file not a collection, Depth: 0 is
+     * implied and so request body (if present) is not for LOCK.
+     *
+     * MS-WDV does not seem to care about "idempotency".  GET and HEAD requests
+     * should be idempotent, but the MS extension for locking with GET and HEAD
+     * might result in changes in lock state, which are not idempotent.
+     */
+    const buffer *vb =
+      http_header_request_get(r, HTTP_HEADER_OTHER,
+                              CONST_STR_LEN("X-MSDAVEXTLockTimeout"));
+    if (!vb)
+        return HANDLER_GO_ON;
+
+    /* check for unlock */
+
+    if (buffer_eq_icase_slen(vb, CONST_STR_LEN("second-0"))) {
+        mod_webdav_unlock(r, pconf);
+        return (http_status_get(r) == 204) ? HANDLER_GO_ON : HANDLER_FINISHED;
+    }
+
+    /* refresh or issue lock */
+
+    /* copy "X-MSDAVEXTLockTimeout" into "Timeout" (overwrite) for LOCK */
+    http_header_request_set(r, HTTP_HEADER_OTHER,
+                            CONST_STR_LEN("Timeout"), BUF_PTR_LEN(vb));
+    buffer *depth = /*(see also webdav_parse_Depth(r))*/
+      http_header_request_get(r, HTTP_HEADER_OTHER, CONST_STR_LEN("Depth"));
+    if (!depth)
+        http_header_request_set(r, HTTP_HEADER_OTHER,
+                                CONST_STR_LEN("Depth"), CONST_STR_LEN("0"));
+    else if (*depth->ptr != '0') {
+        http_status_set_error(r, 403); /* Forbidden */
+        return HANDLER_FINISHED;
+    }
+
+    /* LOCK checks for request body but actual request body does not apply to
+     * locks here, so save/restore r->reqbody_length around mod_webdav_lock() */
+    off_t reqbody_len = r->reqbody_length;
+    r->reqbody_length = 0;
+
+    buffer *lock_token =
+      http_header_request_get(r, HTTP_HEADER_OTHER,
+                              CONST_STR_LEN("Lock-Token"));
+    if (lock_token) {
+        /* refresh lock */
+        buffer *ifhdr =
+          http_header_request_get(r, HTTP_HEADER_OTHER,
+                                  CONST_STR_LEN("If"));
+        if (!ifhdr)
+            http_header_request_set(r, HTTP_HEADER_OTHER,
+                                    CONST_STR_LEN("If"),
+                                    BUF_PTR_LEN(lock_token));
+        else if (!buffer_is_equal(ifhdr, lock_token)) {/*("If" unexpected)*/
+            r->reqbody_length = reqbody_len;
+            http_status_set_error(r, 400); /* Bad Request */
+            return HANDLER_FINISHED;
+        }
+
+        mod_webdav_lock(r, pconf);
+
+      #if 0 /*(not strictly necessary to unset/restore If)*/
+        if (!ifhdr)
+            http_header_request_unset(r, HTTP_HEADER_OTHER,
+                                      CONST_STR_LEN("If"));
+      #endif
+    }
+    else {
+        /* issue lock */
+        /* craft XML body as input to mod_webdav_lock()
+         * MS-WDV does not specify how to fill ownerinfo,
+         * so omit <D:owner>...</D:owner> from the XML */
+        static const char lockexcl[] =
+          "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+          "<D:lockinfo xmlns:D=\"DAV:\">\n"
+          " <D:lockscope><D:exclusive/></D:lockscope>\n"
+          " <D:locktype><D:write/></D:locktype>\n"
+          "</D:lockinfo>\n";
+        r->reqbody_length = sizeof(lockexcl)-1;
+        request_state_t state = r->state;
+        if (state == CON_STATE_READ_POST)
+            r->state = CON_STATE_HANDLE_REQUEST;
+
+        /*(preserve r->reqbody_queue.bytes_in for HTTP/1.1 keep-alive)*/
+        chunkqueue save;
+        memset(&save, 0, sizeof(chunkqueue));
+        save.bytes_out = r->reqbody_queue.bytes_out;
+        chunkqueue_append_chunkqueue(&save, &r->reqbody_queue);
+        save.bytes_in = r->reqbody_queue.bytes_in;
+        chunkqueue_append_mem(&r->reqbody_queue, CONST_STR_LEN(lockexcl));
+
+        buffer ct = { NULL, 0, 0 };
+        vb = http_header_request_get(r, HTTP_HEADER_CONTENT_TYPE,
+                                     CONST_STR_LEN("Content-Type"));
+        if (vb)
+            buffer_copy_buffer(&ct, vb);
+        http_header_request_set(r, HTTP_HEADER_CONTENT_TYPE,
+                                CONST_STR_LEN("Content-Type"),
+                                CONST_STR_LEN("text/xml"));
+
+        mod_webdav_lock(r, pconf);
+
+        if (vb) {
+            http_header_request_set(r, HTTP_HEADER_CONTENT_TYPE,
+                                    CONST_STR_LEN("Content-Type"),
+                                    BUF_PTR_LEN(&ct));
+            buffer_free_ptr(&ct);
+        }
+        else
+            http_header_request_unset(r, HTTP_HEADER_CONTENT_TYPE,
+                                      CONST_STR_LEN("Content-Type"));
+
+        r->reqbody_queue.bytes_out = save.bytes_out;
+        chunkqueue_append_chunkqueue(&r->reqbody_queue, &save);
+        r->reqbody_queue.bytes_in = save.bytes_in;
+
+        if (state == CON_STATE_READ_POST)
+            r->state = state;
+    }
+
+    r->reqbody_length = reqbody_len;
+
+  #if 0 /*(not strictly necessary to unset/restore Timeout or Depth)*/
+    if (!depth)
+        http_header_request_unset(r, HTTP_HEADER_OTHER,
+                                  CONST_STR_LEN("Depth"));
+  #endif
+
+    int status = http_status_get(r);
+    if (status != 200 && status != 201)
+        return HANDLER_FINISHED;
+
+    /* reflect Lock-Token into response if Lock-Token was refreshed */
+    if (lock_token)
+        http_header_response_set(r, HTTP_HEADER_OTHER,
+                                 CONST_STR_LEN("Lock-Token"),
+                                 BUF_PTR_LEN(lock_token));
+
+    /* translate Timeout response header to X-MSDAVEXTLockTimeout */
+    vb = http_header_response_get(r, HTTP_HEADER_OTHER,
+                                  CONST_STR_LEN("Timeout"));
+    if (vb) {
+        http_header_response_set(r, HTTP_HEADER_OTHER,
+                                 CONST_STR_LEN("X-MSDAVEXTLockTimeout"),
+                                 BUF_PTR_LEN(vb));
+        http_header_response_unset(r, HTTP_HEADER_OTHER,
+                                   CONST_STR_LEN("Timeout"));
+    }
+
+    return HANDLER_GO_ON;
+}
+#endif
+
+
+static handler_t
+mod_webdav_msdavext_propfind (request_st * const r, const plugin_config * const pconf, struct stat *st)
+{
+    /* Note: the database of properties and the target file are separate, so
+     * there is a race condition between opening the file and retrieving the
+     * properties from the database.  There is no race for live properties
+     * which are associated with fstat() on file descriptor open to file. */
+
+  #if 0
+
+    /* MS-WDV does not fully specify how to treat request body for GET,HEAD,POST
+     *
+     * A request body could be specified with PROPFIND.  However, MS-WDV section
+     * 2.2.5 specifies allprop, so request body (if present) is not for PROPFIND
+     */
+
+    /* request body, if present, is ignored if the request is handled here.
+     * (handled w/o subrequest_handler and w/o HANDLER_WAIT_FOR_EVENT and
+     *  w/o setting r->handler_module.  Must revisit if this changes.) */
+   #if 0
+    r->handler_module = ((plugin_data *)p_d)->self;
+    r->conf.stream_request_body &=
+      ~(FDEVENT_STREAM_REQUEST | FDEVENT_STREAM_REQUEST_BUFMIN);
+   #endif
+    off_t reqbody_len = r->reqbody_length;
+    r->reqbody_length = 0;
+
+    handler_t rc = mod_webdav_propfind(r, pconf);
+
+    r->reqbody_length = reqbody_len;
+
+    if (http_status_get(r) != 207)
+        return rc;
+
+    http_status_unset(r); /* for http_response_send_file() */
+
+    /* TODO: append hash value of propfind data to ETag response header
+     * (need to ensure data is in memory (not tmpfile) to be able to hash) */
+
+    uint32_t blen;
+    char hex[16];
+    chunkqueue * const cq = &r->write_queue;
+    buffer * const tb = r->tmp_buf;
+
+    buffer_clear(tb);
+    buffer_append_uint_hex_lc(tb, chunkqueue_length(cq)); /* propfind len */
+    blen = buffer_clen(tb);
+    memset(hex, 0, 16);
+    memcpy(hex+16-blen, tb->ptr, blen);
+    buffer_copy_string_len(chunkqueue_prepend_buffer_open(cq), hex, 16);
+    chunkqueue_prepend_buffer_commit(cq);
+
+    buffer_clear(tb);
+    buffer_append_uint_hex_lc(tb, st->st_size); /* file len */
+    blen = buffer_clen(tb);
+    memset(hex, 0, 16);
+    memcpy(hex+16-blen, tb->ptr, blen);
+    chunkqueue_append_mem(cq, hex, 16);
+
+  #else
+
+    /*(specialized from mod_webdav_propfind() to synchronize struct st with sce
+     * and generate "multipart/MSDAVEXTPrefixEncoded" length prefixes inline)*/
+    webdav_propfind_bufs pb;
+    memset(&pb, 0, sizeof(pb));
+    pb.st = *st; /*(copy struct)*/
+
+    pb.allprop       = 1;
+    pb.lockdiscovery = 1;
+    pb.r     = r;
+    pb.pconf = pconf;
+    pb.dst   = &r->physical;
+    pb.b     = chunk_buffer_acquire();
+    pb.b_200 = chunk_buffer_acquire();
+    pb.b_404 = chunk_buffer_acquire();
+    /*(optimization; buf extended as needed)*/
+    chunk_buffer_prepare_append(pb.b, 8192);
+
+    buffer_append_string_len(pb.b, "0000000000000000", 16);/*(filled in below)*/
+
+    /* XXX: Do MS clients handle 207 Multi-status PROPFIND response
+     *      as part of "multipart/MSDAVEXTPrefixEncoded" ? */
+
+    webdav_xml_doctype(pb.b, r);
+    buffer_append_string_len(pb.b, CONST_STR_LEN(
+      "<D:multistatus xmlns:D=\"DAV:\" " MOD_WEBDAV_XMLNS_NS0 ">\n"));
+
+    webdav_propfind_resource(&pb);
+
+    buffer_append_string_len(pb.b, CONST_STR_LEN(
+      "</D:multistatus>\n"));
+
+    uint32_t blen;
+    buffer * const tb = r->tmp_buf;
+
+    buffer_clear(tb);
+    buffer_append_uint_hex_lc(tb, buffer_clen(pb.b)-16); /* propfind len */
+    blen = buffer_clen(tb);
+    memcpy(pb.b->ptr+16-blen, tb->ptr, blen);
+
+    buffer_append_string_len(pb.b, "0000000000000000", 16);
+
+    buffer_clear(tb);
+    buffer_append_uint_hex_lc(tb, pb.st.st_size); /* file len */
+    blen = buffer_clen(tb);
+    memcpy(pb.b->ptr+buffer_clen(pb.b)-blen, tb->ptr, blen);
+
+    /* append hash value of propfind data to ETag response header */
+    buffer *etag = http_header_response_get(r, HTTP_HEADER_ETAG,
+                                            CONST_STR_LEN("ETag"));
+    if (etag && (blen = buffer_clen(etag)))
+        buffer_truncate(etag, blen-1); /* remove trailing '"' */
+    else {
+        etag = http_header_response_set_ptr(r, HTTP_HEADER_ETAG,
+                                            CONST_STR_LEN("ETag"));
+        buffer_append_char(etag, '"');
+    }
+    blen = buffer_clen(pb.b)-32; /* skip first 16 and last 16 bytes */
+    buffer_append_uint_hex_lc(etag, dekhash(pb.b->ptr+16, blen, blen));
+    buffer_append_char(etag, '"');
+
+    http_chunk_append_buffer(r, pb.b); /*(might move/steal/reset buffer)*/
+    chunk_buffer_release(pb.b);
+    /*http_status_set_fin(r, 207);*/ /* Multi-status */
+
+    chunk_buffer_release(pb.b_404);
+    chunk_buffer_release(pb.b_200);
+
+    if (pconf->log_xml)
+        /*(not done: could temporarily adjust cq offset +16 to and chunk len -16
+         * to skip hex lengths, though not worth the effort for debug logs)*/
+        webdav_xml_log_response(r);
+
+  #endif
+
+    http_header_response_set(r, HTTP_HEADER_CONTENT_TYPE,
+                             CONST_STR_LEN("Content-Type"),
+                             CONST_STR_LEN("multipart/MSDAVEXTPrefixEncoded"));
+
+    return HANDLER_GO_ON;
+}
+
+
+__attribute_noinline__
+static handler_t
+mod_webdav_msdavext_fetch (request_st * const r, const plugin_config * const pconf)
+{
+    /* MS-WDV does not seem to care about "idempotency".
+     *
+     * Technically, a Vary header should be sent with *all* GET and HEAD
+     * requests which *might* be served by mod_webdav since response content
+     * may vary based on presence or absense of Translate or X-MSDAVEXT.
+     *
+     * GET and HEAD requests should be idempotent, but the MS extension for
+     * locking with GET and HEAD might result in changes in lock state, which
+     * are not idempotent.  Lock-Token and X-MSDAVEXTLockTimeout request headers
+     * may influence response headers Lock-Token and X-MSDAVEXTLockTimeout.
+     *
+     * For GET and HEAD, idempotency matters more than other methods due to
+     * aggressive (and sometimes over-aggressive) caching by clients and
+     * proxies.
+     *
+     * While technically a violation of the RFCs to omit Vary for all requests
+     * which reach here, instead only send private caching headers to MS clients
+     * which are handled here.  Note: not sending Vary may result in MS clients
+     * receiving cached content from proxies from requests sent without msdavext
+     * headers if those responses were sent without restrictive caching headers
+     * (e.g. in Cache-Control).
+     *
+     * MS clients ought to send requests w/ "Cache-Control: no-cache, no-store"
+     * if using MS-WDV extensions.  Do they?
+     */
+
+    const buffer *vb;
+
+    /* Require "Translate: f" to handle GET, HEAD, QUERY, POST */
+    vb = http_header_request_get(r, HTTP_HEADER_OTHER,
+                                 CONST_STR_LEN("Translate"));
+    if (!vb || (*vb->ptr | 0x20) != 'f')
+        return HANDLER_GO_ON;
+
+    /* NB: mod_staticfile "static-file.exclude-extensions" config directive
+     *     *does not* apply to mod_webdav. */
+
+    /* XXX: ? should authentication be required for Translate: f ?
+     * (do not want to expose source unless authenticated, and
+     *  existing configs might require authentication only for PUT)
+     * MS-WDV documents MS implementations require at least write-access.
+     * (These restriction might be changed or removed in the future) */
+    if (pconf->is_readonly
+        || !http_header_env_get(r, CONST_STR_LEN("REMOTE_USER"))) {
+        http_status_set_error(r, 403); /* Forbidden */
+        return HANDLER_FINISHED;
+    }
+
+    /* Require that target exists (e.g. so that LOCK does not create target)
+     * or else let other modules handle non-physical or non-existing resource */
+
+    /*(specialized from mod_webdav_propfind())*/
+    /* stat() file and update stat_cache to ensure stat_cache freshness */
+    int atflags =
+      ((pconf->opts & MOD_WEBDAV_UNSAFE_PROPFIND_FOLLOW_SYMLINK)
+       && pconf->is_readonly)
+        ? 0 /* non-standard */
+        : AT_SYMLINK_NOFOLLOW; /* WebDAV does not have symlink concept */
+
+    struct stat st;
+    if (atflags == AT_SYMLINK_NOFOLLOW
+        ? 0 != lstat(r->physical.path.ptr, &st)
+        : 0 != stat(r->physical.path.ptr, &st)) /* non-standard */
+        return HANDLER_GO_ON;
+    stat_cache_update_entry(BUF_PTR_LEN(&r->physical.path), &st, NULL);
+    stat_cache_entry * const sce =
+      stat_cache_get_entry_open(&r->physical.path, r->conf.follow_symlink);
+    if (NULL == sce)
+        return HANDLER_GO_ON;
+    /* require that target exists (maybe 0-len) and is not a collection */
+    if (S_ISDIR(sce->st.st_mode))
+        return HANDLER_GO_ON;
+    else if (buffer_has_pathsep_suffix(&r->physical.path))
+        return HANDLER_GO_ON;
+
+    /* set ETag; might be augmented in mod_webdav_msdavext_propfind() */
+    const buffer *etag = stat_cache_etag_get(sce, r->conf.etag_flags);
+    if (etag)
+        http_header_response_set(r, HTTP_HEADER_ETAG,
+                                 CONST_STR_LEN("ETag"), BUF_PTR_LEN(etag));
+
+    vb = http_header_request_get(r, HTTP_HEADER_OTHER,
+                                 CONST_STR_LEN("X-MSDAVEXT"));
+    if (vb && buffer_eq_icase_slen(vb, CONST_STR_LEN("PROPFIND"))) {
+        handler_t rc = mod_webdav_msdavext_propfind(r, pconf, &sce->st);
+        if (rc != HANDLER_GO_ON)
+            return rc;
+    }
+    else
+        vb = NULL;
+
+    http_response_send_file(r, &r->physical.path, sce);
+    if (http_status_get(r) >= 400) {
+        http_response_body_clear(r, 0);
+        r->handler_module = NULL;
+        return HANDLER_FINISHED;
+    }
+    /* redo Content-Length after http_response_send_file()
+     * (necessary if multipart/MSDAVEXTPrefixEncoded) */
+    if (vb)
+        buffer_append_int(
+          http_header_response_set_ptr(r, HTTP_HEADER_CONTENT_LENGTH,
+                                       CONST_STR_LEN("Content-Length")),
+          chunkqueue_length(&r->write_queue));
+
+  #ifdef USE_LOCKS
+    /* refresh locks as final step since prior lock state is not saved,
+     * making recovery impossible if other steps were to fail later */
+    if (!pconf->is_readonly) { /*(do not issue locks if read-only)*/
+        int http_status = http_status_get(r); /* save http_status */
+        chunkqueue wq;
+        memset(&wq, 0, sizeof(wq));
+        chunkqueue_append_chunkqueue(&wq, &r->write_queue); /* save cq */
+        chunkqueue_reset(&r->write_queue);
+
+        handler_t rc = mod_webdav_msdavext_locks(r, pconf);
+        if (rc != HANDLER_GO_ON) {
+            chunkqueue_reset(&wq);
+            http_header_response_unset(r, HTTP_HEADER_ETAG,
+                                       CONST_STR_LEN("ETag"));
+            http_header_response_unset(r, HTTP_HEADER_LAST_MODIFIED,
+                                       CONST_STR_LEN("Last-Modified"));
+            http_header_response_unset(r, HTTP_HEADER_CONTENT_LENGTH,
+                                       CONST_STR_LEN("Content-Length"));
+            if (chunkqueue_is_empty(&r->write_queue))
+                http_header_response_unset(r, HTTP_HEADER_CONTENT_TYPE,
+                                           CONST_STR_LEN("Content-Type"));
+            return rc;
+        }
+
+        http_response_body_clear(r, 0); /* includes chunkqueue_reset() */
+        chunkqueue_append_chunkqueue(&r->write_queue, &wq); /* restore cq */
+        http_status_set_fin(r, http_status); /* restore http_status */
+    }
+  #endif
+
+    http_header_response_append(r, HTTP_HEADER_CACHE_CONTROL,
+                                CONST_STR_LEN("Cache-Control"),
+                                CONST_STR_LEN("private"));
+    http_header_response_append(r, HTTP_HEADER_VARY,
+                                CONST_STR_LEN("Vary"),
+                                CONST_STR_LEN("Translate, X-MSDAVEXT"));
+                                              /* ,"Lock-Token" */
+                                              /* ,"X-MSDAVEXTLockTimeout" */
+    return HANDLER_FINISHED;
+}
+
+
+__attribute_pure__
+static uint64_t
+mod_webdav_msdavext_16hex2uint64 (const char *p)
+{
+    uint64_t len = 0;
+    int i = 0;
+    for (; i < 16 && p[i] == '0'; ++i) ; /* skip leading '0's */
+    for (; i < 16; ++i) {
+        uint8_t h = (uint8_t)hex2int(p[i]);
+        if (h == 0xFF)
+            return ~(uint64_t)0uLL;
+        len <<= 4;
+        len |= h;
+    }
+    return len;
+}
+
+
+static handler_t
+mod_webdav_msdavext_proppatch_check (request_st * const r, const plugin_config * const pconf)
+{
+    /* check <Properties> from "multipart/MSDAVEXTPrefixEncoded"
+     * (duplicates some work that will be repeated in mod_webdav_proppatch())
+     * Checking here detects errors early (even though none expected), so that
+     * later application of properties is very likely to succeed immediately
+     * following PUT.  Ignore <Properties-Size> 0000000000000000 (all-zeroes)
+     * in caller */
+    if (!pconf->sql)
+        return webdav_405_no_db(r);
+
+    xmlDocPtr const xml = webdav_parse_chunkqueue(r, pconf);
+    if (NULL == xml) {
+        http_status_set_error(r, 400); /* Bad Request */
+        return HANDLER_FINISHED;
+    }
+
+    const xmlNode * const rootnode = xmlDocGetRootElement(xml);
+    if (NULL == rootnode
+        || 0 != webdav_xmlstrcmp_fixed(rootnode->name, "propertyupdate")) {
+        http_status_set_error(r, 422); /* Unprocessable Entity */
+        xmlFreeDoc(xml);
+        return HANDLER_FINISHED;
+    }
+
+    xmlFreeDoc(xml);
+    return HANDLER_GO_ON;
+}
+
+
+__attribute_noinline__
+static handler_t
+mod_webdav_msdavext_proppatch_prep (request_st * const r, const plugin_config * const pconf)
+{
+    off_t cqlen;
+    /* (r->write_queue used to store PROPPATCH *input*) */
+    if (chunkqueue_is_empty(&r->write_queue)
+        && (cqlen = chunkqueue_length(&r->reqbody_queue)) >= 32) {
+        char dbuf[16];
+        char *data = dbuf;
+        uint32_t dlen = sizeof(dbuf);
+        if (0 != chunkqueue_peek_data(&r->reqbody_queue, &data, &dlen,
+                                      r->conf.errh)) {
+            http_status_set_error(r, 500); /* Internal Server Error */
+            return HANDLER_FINISHED;
+        }
+        uint64_t proplen = mod_webdav_msdavext_16hex2uint64(data);
+        /*(future: might store proplen in pconf to avoid recalculating;
+         * recalculation might be expensive if repeatedly reading from temp file
+         * (storing would have to init storage and check if filled in))*/
+     #if 0 /*(included in check below)*/
+        if (proplen == ~(uint64_t)0uLL) {
+            http_status_set_error(r, 400); /* Bad Request */
+            return HANDLER_FINISHED;
+        }
+     #endif
+        if (proplen > 65536-32) { /* arbitrary limit; kept in memory */
+            http_status_set_error(r, 400); /* Bad Request */
+            return HANDLER_FINISHED;
+        }
+        if ((off_t)proplen+32 <= cqlen) {
+            if (proplen) {
+                /* validate <Properties> from "multipart/MSDAVEXTPrefixEncoded";
+                 * save/restore r->reqbody_queue, including accounting info */
+                /*(preserve r->reqbody_queue.bytes_in for HTTP/1.1 keep-alive)*/
+                chunkqueue cq;
+                memset(&cq, 0, sizeof(chunkqueue));
+                chunkqueue_append_chunkqueue(&cq, &r->reqbody_queue);
+                /* copy <Properties> since data is consume while processing */
+                chunkqueue_append_cq_range(&r->reqbody_queue, &cq, 16, proplen);
+
+                handler_t rc = mod_webdav_msdavext_proppatch_check(r, pconf);
+
+                chunkqueue_reset(&r->reqbody_queue);
+                chunkqueue_append_chunkqueue(&r->reqbody_queue, &cq);
+
+                if (rc != HANDLER_GO_ON)
+                    return rc;
+            }
+
+            /* r->write_queue used to store PROPPATCH *input* while PUT read */
+            chunkqueue_steal(&r->write_queue, &r->reqbody_queue, proplen+32);
+
+            /* perform deferred target file prep for PUT */
+            plugin_config pconfext = *pconf;
+            pconfext.opts &= ~MOD_WEBDAV_MSDAVEXT; /*skip repeat msdavext prep*/
+            if (mod_webdav_put_prep(r, &pconfext) == HANDLER_FINISHED)
+                return HANDLER_FINISHED;
+        }
+    }
+
+    if (r->state == CON_STATE_READ_POST)
+        return HANDLER_GO_ON;
+
+    /* proppatch data not yet processed */
+    if (chunkqueue_is_empty(&r->write_queue)) {
+        http_status_set_error(r, 400); /* Bad Request */
+        return HANDLER_FINISHED;
+    }
+
+    buffer *b = chunkqueue_read_squash(&r->write_queue, r->conf.errh);
+    uint64_t len = (b != NULL && buffer_clen(b) >= 32)
+      ? mod_webdav_msdavext_16hex2uint64(b->ptr + buffer_clen(b) - 16)
+      : ~(uint64_t)0uLL;
+  #if 0 /*(included in check below)*/
+    if (len == ~(uint64_t)0uLL) {
+        http_status_set_error(r, 400); /* Bad Request */
+        return HANDLER_FINISHED;
+    }
+  #endif
+    /* check that <File-contents> actual length matches
+     * <File-Size> from "multipart/MSDAVEXTPrefixEncoded" */
+    if ((off_t)len != chunkqueue_length(&r->reqbody_queue)) {
+        http_status_set_error(r, 400); /* Bad Request */
+        return HANDLER_FINISHED;
+    }
+
+    return HANDLER_GO_ON;
+}
+
+
+__attribute_noinline__
+static handler_t
+mod_webdav_msdavext_put_prep (request_st * const r, plugin_config * const pconf)
+{
+    /* overload pconf->opts with msdavext PUT + PROPPATCH + LOCK/UNLOCK state
+     * instead of extending plugin_config *pconf with new members */
+
+    /*(pconf->is_readonly already checked for PUT or PROPPATCH)*/
+
+    buffer *vb;
+
+    pconf->opts &= ~MOD_WEBDAV_MSDAVEXT;
+
+  #if 0 /*disable "Translate: f" check since mod_webdav handles PUT anyway */
+    /* Require "Translate: f" to handle PUT, else defer to other handlers */
+    /*(note: this code would need to be relocated elsewhere to defer handling)*/
+    vb = http_header_request_get(r, HTTP_HEADER_OTHER,
+                                 CONST_STR_LEN("Translate"));
+    if (!vb || (*vb->ptr | 0x20) != 'f')
+        return HANDLER_GO_ON;
+  #endif
+
+  #ifdef USE_LOCKS
+    vb = http_header_request_get(r, HTTP_HEADER_OTHER,
+                                 CONST_STR_LEN("X-MSDAVEXTLockTimeout"));
+    if (vb) {
+        buffer *lock_token =
+          http_header_request_get(r, HTTP_HEADER_OTHER,
+                                  CONST_STR_LEN("Lock-Token"));
+        if (lock_token)
+            pconf->opts |= MOD_WEBDAV_MSDAVEXT_LOCK_TOKEN;
+        else if (!http_header_request_get(r, HTTP_HEADER_OTHER,
+                                          CONST_STR_LEN("If"))) {
+            /*("If" unexpected since new lock requested;
+             * ignore new lock request if "If" is present)*/
+
+            /* obtain new lock (might create empty file if 201 Created)
+             * at beginning of file upload since client desires lock and
+             * upload may take non-trivial amount of time. */
+            handler_t rc = mod_webdav_msdavext_locks(r, pconf);
+            if (rc != HANDLER_GO_ON)
+                return rc;
+            pconf->opts |= MOD_WEBDAV_MSDAVEXT_LOCK_CREATE;
+            if (http_status_get(r) == 201)
+                pconf->opts |= MOD_WEBDAV_MSDAVEXT_FILE_CREATE;
+            /* undo http_status_set_fin() */
+            /*r->handler_module = ((plugin_data *)p_d)->self;*/
+            r->resp_body_finished = 0;
+            http_status_unset(r);
+            /* copy Lock-Token response header to If request; file now locked */
+            lock_token =
+              http_header_response_get(r, HTTP_HEADER_OTHER,
+                                       CONST_STR_LEN("Lock-Token"));
+            if (lock_token) /*(expected)*/
+                http_header_request_set(r, HTTP_HEADER_OTHER,
+                                        CONST_STR_LEN("If"),
+                                        BUF_PTR_LEN(lock_token));
+        }
+        pconf->opts |= MOD_WEBDAV_MSDAVEXT;
+    }
+  #endif
+
+    vb = http_header_request_get(r, HTTP_HEADER_OTHER,
+                                 CONST_STR_LEN("X-MSDAVEXT"));
+    if (vb && buffer_eq_icase_slen(vb, CONST_STR_LEN("PROPPATCH"))) {
+        vb = http_header_request_get(r, HTTP_HEADER_CONTENT_TYPE,
+                                     CONST_STR_LEN("Content-Type"));
+        if (!vb || !buffer_eq_icase_slen(vb,
+                      CONST_STR_LEN("multipart/MSDAVEXTPrefixEncoded"))) {
+            http_status_set_error(r, 400); /* Bad Request */
+            return HANDLER_FINISHED;
+        }
+        pconf->opts |= MOD_WEBDAV_MSDAVEXT | MOD_WEBDAV_MSDAVEXT_PROPPATCH;
+    }
+
+    return HANDLER_GO_ON;
+}
+
+
+__attribute_noinline__
+static void
+mod_webdav_msdavext_put_fin (request_st * const r, const plugin_config * const pconf)
+{
+    /* save response status */
+    int http_status = http_status_get(r);
+    const plugin *handler_module = r->handler_module;
+    char resp_body_finished = r->resp_body_finished;
+
+    if (http_status < 400) { /* e.g. 201, 204 */
+        /* PUT success consumes r->reqbody_queue; expect empty queue */
+        /* PUT does not produce response body; clear r->write_queue
+         * (r->write_queue used to store PROPPATCH *input*) */
+      #ifdef USE_PROPPATCH
+        chunkqueue cq;
+        if (pconf->opts & MOD_WEBDAV_MSDAVEXT_PROPPATCH) {
+            memset(&cq, 0, sizeof(cq));
+            chunkqueue_append_chunkqueue(&cq, &r->write_queue);
+        }
+      #endif
+        if (pconf->opts & MOD_WEBDAV_MSDAVEXT_PROPPATCH)
+            chunkqueue_reset(&r->write_queue);
+
+      #ifdef USE_LOCKS
+        if (pconf->opts & MOD_WEBDAV_MSDAVEXT_LOCK_TOKEN) {
+            /* refresh lock or unlock using X-MSDAVEXTLockTimeout */
+            mod_webdav_msdavext_locks(r, pconf);
+
+            /* PUT does not produce response body
+             * Clear r->write_queue after LOCK; ignore errors
+             * Lock validated before PUT, so refresh or unlock should succeed
+             * PUT resource preserved even if LOCK/UNLOCK error (unexpected) */
+            chunkqueue_reset(&r->write_queue);
+            http_header_response_unset(r, HTTP_HEADER_CONTENT_TYPE,
+                                       CONST_STR_LEN("Content-Type"));
+            /* restore response status */
+            http_status_set(r, http_status);
+            r->handler_module = handler_module;
+            r->resp_body_finished = resp_body_finished;
+        }
+      #endif
+
+        if (pconf->opts & MOD_WEBDAV_MSDAVEXT_PROPPATCH) {
+          #ifdef USE_PROPPATCH
+            /* input validated before PUT, so PROPPATCH should succeed
+             * ("Content-Type: text/xml" not needed since r->http_method is PUT)
+             * r->write_queue used to store PROPPATCH *input* */
+            if (chunkqueue_is_empty(&cq))
+                return;
+            /* cq accounting includes <Properties-Size> and <File-Size>,
+             * so transfer and then remove first and last 16 bytes */
+            /*(preserve r->reqbody_queue.bytes_in for HTTP/1.1 keep-alive)*/
+            r->reqbody_queue.bytes_in -= chunkqueue_length(&cq);
+            r->reqbody_queue.bytes_out -= chunkqueue_length(&cq);
+            chunkqueue_append_chunkqueue(&r->reqbody_queue, &cq);
+            chunkqueue_mark_written(&r->reqbody_queue, 16);
+            chunk *c = r->reqbody_queue.last; /* expecting single MEM_CHUNK */
+            if (c && c->type == MEM_CHUNK && buffer_clen(c->mem) >= 16) {
+                buffer_truncate(c->mem, buffer_clen(c->mem) - 16);
+                r->reqbody_queue.bytes_out += 16;
+            }
+
+            mod_webdav_proppatch(r, pconf);
+
+            if (http_status_get(r) < 400) {
+                /* preserve status (207 Multi-status) and body from PROPPATCH */
+            }
+            else {
+                /* PUT does not produce response body
+                 * Clear r->write_queue after PROPPATCH error; ignore errors
+                 * Input validated before PUT, so PROPPATCH should succeed
+                 * PUT resource preserved even if PROPPATCH error (unexpected)*/
+                chunkqueue_reset(&r->write_queue);
+                http_header_response_unset(r, HTTP_HEADER_CONTENT_TYPE,
+                                           CONST_STR_LEN("Content-Type"));
+                /* restore response status */
+                http_status_set(r, http_status);
+                r->handler_module = handler_module;
+                r->resp_body_finished = resp_body_finished;
+            }
+
+            /* do not return ETag for PUT file with response body
+             * for 207 Multi-status from PROPPATCH (but okay if 201 or 204)
+             * (207 for "User-Agent: Microsoft-WebDAV-MiniRedir/...") */
+            http_header_response_unset(r, HTTP_HEADER_ETAG,
+                                       CONST_STR_LEN("ETag"));
+          #endif
+        }
+    }
+    else {
+        /* PUT does not produce response body; clear r->write_queue
+         * (r->write_queue used to store PROPPATCH *input*) */
+        if (pconf->opts & MOD_WEBDAV_MSDAVEXT_PROPPATCH)
+            chunkqueue_reset(&r->write_queue);
+
+      #ifdef USE_LOCKS
+        if (!(pconf->opts & MOD_WEBDAV_MSDAVEXT_LOCK_CREATE))
+            return;
+
+        /* attempt to release newly issued lock
+         * ignore error (not expected since lock recently created) */
+        http_header_response_unset(r, HTTP_HEADER_OTHER,
+                                   CONST_STR_LEN("X-MSDAVEXTLockTimeout"));
+        const buffer * const lock_token =
+          http_header_response_get(r, HTTP_HEADER_OTHER,
+                                   CONST_STR_LEN("Lock-Token"));
+        if (!lock_token)
+            return;
+
+        http_header_request_set(r, HTTP_HEADER_OTHER,
+                                CONST_STR_LEN("Lock-Token"),
+                                BUF_PTR_LEN(lock_token));
+        http_header_response_unset(r, HTTP_HEADER_OTHER,
+                                   CONST_STR_LEN("Lock-Token"));
+
+        if (pconf->opts & MOD_WEBDAV_MSDAVEXT_FILE_CREATE) {
+            /* remove 0-length file created with LOCK
+             * (remove 0-length file before releasing lock)
+             * (should we sanity-check file is 0-length?) */
+            unlink(r->physical.path.ptr);
+        }
+
+        mod_webdav_unlock(r, pconf);
+
+        /* PUT does not produce response body
+         * Clear r->write_queue after UNLOCK; ignore errors
+         * Lock recent created, so or unlock should succeed */
+        chunkqueue_reset(&r->write_queue);
+        http_header_response_unset(r, HTTP_HEADER_CONTENT_TYPE,
+                                   CONST_STR_LEN("Content-Type"));
+
+        /* restore response status */
+        http_status_set(r, http_status);
+        r->handler_module = handler_module;
+        r->resp_body_finished = resp_body_finished;
+      #endif
+    }
 }
