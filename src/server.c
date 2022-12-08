@@ -192,6 +192,10 @@ static volatile sig_atomic_t handle_sig_alarm = 1;
 static volatile sig_atomic_t handle_sig_hup = 0;
 static int idle_limit = 0;
 
+#ifdef BUILD_LIBRARY
+# include "library-wrap.h"
+#endif
+
 __attribute_cold__
 int server_main (int argc, char ** argv);
 
