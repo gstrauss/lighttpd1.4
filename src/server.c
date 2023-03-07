@@ -193,8 +193,8 @@ static volatile sig_atomic_t handle_sig_alarm = 1;
 static volatile sig_atomic_t handle_sig_hup = 0;
 static int idle_limit = 0;
 
-__attribute_cold__
-int server_main (int argc, char ** argv);
+#define PRE_MAIN_HOOK
+#define POST_MAIN_HOOK
 
 #ifdef _WIN32
 #ifndef SIGBREAK
@@ -2260,12 +2260,11 @@ static int main_init_once (void) {
 #define server_status_running(srv) do { } while (0)
 #endif
 
-#ifndef main
-#define server_main main
-#endif
-
 __attribute_cold__
-int server_main (int argc, char ** argv) {
+int main (int argc, char ** argv) {
+
+    PRE_MAIN_HOOK
+
     if (!main_init_once()) return -1;
 
     int rc;
@@ -2326,6 +2325,8 @@ int server_main (int argc, char ** argv) {
         /* wait for all children to exit before graceful restart */
         while (fdevent_waitpid(-1, NULL, 0) > 0) ;
     } while (graceful_restart);
+
+    POST_MAIN_HOOK
 
     return rc;
 }

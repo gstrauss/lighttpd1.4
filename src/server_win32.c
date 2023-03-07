@@ -223,12 +223,8 @@ static void lighttpd_ServiceStatus (DWORD dwCurrentState, DWORD dwWin32ExitCode,
   lighttpd_ServiceStatus(SERVICE_STOP_PENDING, NO_ERROR, dwWaitHint + 1000);
 
 
-#ifndef main
-#define main main
-#define server_main_win32 main
-#endif
 __attribute_cold__
-int server_main_win32 (int argc, char ** argv);
+int main (int argc, char ** argv);
 
 static int svc_main_argc;
 static char ** svc_main_argv;
@@ -251,7 +247,7 @@ static void lighttpd_ServiceMain (DWORD dwNumServicesArgs, LPSTR *lpServiceArgVe
         argv = lpServiceArgVectors;
     }
 
-    server_main_win32(argc, argv);
+    main (argc, argv);
 
     lighttpd_ServiceStatus(SERVICE_STOPPED, NO_ERROR, 0);
     CloseHandle(hStatus);
@@ -304,9 +300,9 @@ void fdevent_win32_init (volatile sig_atomic_t *ptr);
 #include <fcntl.h>      /* _O_BINARY */
 #include <io.h>         /* _setmode() */
 #include <stdlib.h>     /* _set_fmode() */
+
 __attribute_cold__
-int server_main_win32 (int argc, char ** argv)
-{
+int pre_main_hook (int argc, char ** argv) {
     static int lighttpd_ServiceCtrlDispatcher_once;
     if (!lighttpd_ServiceCtrlDispatcher_once) {
         lighttpd_ServiceCtrlDispatcher_once = 1;
@@ -331,10 +327,17 @@ int server_main_win32 (int argc, char ** argv)
 
     fdevent_win32_init(&handle_sig_child);
 
-    rc = server_main(argc, argv);
+    return rc;
+}
 
+void post_main_hook() {
     fdevent_win32_init(NULL);
 
     WSACleanup();
-    return rc;
 }
+
+#define PRE_MAIN_HOOK \
+    int prerc = pre_main_hook(argc, argv); \
+    if (prerc) return prerc;
+
+#define POST_MAIN_HOOK post_main_hook();
