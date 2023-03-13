@@ -892,6 +892,11 @@ if(BUILD_STATIC)
 endif()
 
 if(CMAKE_CROSSCOMPILING)
+	# Good luck making this work for a cross-compilation on Windows host!
+	# I'll better skip the Lemon build in such scenario, and will rely on
+	# a pre-build Lemon binary copied into the build output folder by
+	# a parent CMake config.
+	if(NOT CMAKE_HOST_SYSTEM_NAME MATCHES "Windows")
 	# custom compile lemon using native compiler
 	if(CMAKE_SYSTEM_NAME MATCHES "iOS")
 		execute_process(
@@ -915,6 +920,7 @@ if(CMAKE_CROSSCOMPILING)
 		VERBATIM
 		COMMAND_EXPAND_LISTS
 	)
+	endif()
 else()
 	add_executable(lemon lemon.c)
 endif()

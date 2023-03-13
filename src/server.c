@@ -197,7 +197,11 @@ static int idle_limit = 0;
 #endif
 
 __attribute_cold__
+#if _WIN32
+int server_main (int argc, char ** argv, void (*callback)());
+#else
 int server_main (int argc, char ** argv);
+#endif
 
 #ifdef _WIN32
 #ifndef SIGBREAK
@@ -1606,6 +1610,9 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
 	 * An open file descriptor has an underlying operating system HANDLE.
 	 * However, standard handles are cached at program startup,
 	 * so we try to match them all back up after redirection. */
+	 /* TODO: This did not work for me in a library for UWP, as it starts without console,
+	  * thus causing freopen() below to fail, and thus the code entering if()
+		* branch and exiting with -1 error code.
 	if (   NULL == freopen("nul:", "rb", stdin)
 	    || NULL == freopen("nul:", "wb", stdout)
 	    || (_fileno(stderr) == -2
@@ -1617,6 +1624,7 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
 	SetStdHandle(STD_OUTPUT_HANDLE,(HANDLE)_get_osfhandle(_fileno(stdout)));
 	SetStdHandle(STD_ERROR_HANDLE, (HANDLE)_get_osfhandle(_fileno(stderr)));
 	fdevent_setfd_cloexec(STDERR_FILENO);
+		*/
   #else
 	{
 		struct stat st;

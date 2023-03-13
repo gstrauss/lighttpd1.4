@@ -220,6 +220,7 @@ static void lighttpd_ServiceStatus (DWORD dwCurrentState, DWORD dwWin32ExitCode,
 
 
 #define server_status_running(srv) \
+  if (callback) callback(); \
   lighttpd_ServiceStatus(SERVICE_RUNNING, NO_ERROR, 0);
 
 #define server_status_stopping(srv) \
@@ -232,7 +233,7 @@ static void lighttpd_ServiceStatus (DWORD dwCurrentState, DWORD dwWin32ExitCode,
 #define server_main_win32 main
 #endif
 __attribute_cold__
-int server_main_win32 (int argc, char ** argv);
+int server_main_win32 (int argc, char ** argv, void (*callback)());
 
 static int svc_main_argc;
 static char ** svc_main_argv;
@@ -260,7 +261,11 @@ lighttpd_ServiceMain (DWORD dwNumServicesArgs, LPSTR *lpServiceArgVectors)
         argv = lpServiceArgVectors;
     }
 
+    #ifdef BUILD_LIBRARY
+    server_main_win32(argc, argv, NULL);
+    #else
     server_main_win32(argc, argv);
+    #endif
 
     lighttpd_ServiceStatus(SERVICE_STOPPED, NO_ERROR, 0);
     CloseHandle(hStatus);
@@ -314,7 +319,7 @@ void fdevent_win32_init (volatile sig_atomic_t *ptr);
 #include <io.h>         /* _setmode() */
 #include <stdlib.h>     /* _set_fmode() */
 __attribute_cold__
-int server_main_win32 (int argc, char ** argv)
+int server_main_win32 (int argc, char ** argv, void (*callback)())
 {
     static int lighttpd_ServiceCtrlDispatcher_once;
     if (!lighttpd_ServiceCtrlDispatcher_once) {
@@ -340,10 +345,12 @@ int server_main_win32 (int argc, char ** argv)
 
     fdevent_win32_init(&handle_sig_child);
 
-    rc = server_main(argc, argv);
+    rc = server_main(argc, argv, callback);
 
     fdevent_win32_init(NULL);
 
     WSACleanup();
     return rc;
 }
+
+#define server_main(a,b) server_main(a, b, void (*callback)())

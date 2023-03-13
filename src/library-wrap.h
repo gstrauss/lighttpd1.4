@@ -104,6 +104,8 @@ static void server_status_running (JNIEnv *jenv)
 }
 #define server_status_running(srv) server_status_running(jenv);
 
+int server_main(int argc, char ** argv, JNIEnv *jenv);
+
 /**
  * @brief Launches the server in JNI use case.
  *
@@ -155,29 +157,54 @@ JNIEXPORT void JNICALL Java_com_lighttpd_Server_gracefulShutdown(
 
 int server_main(int argc, char ** argv, void (*callback)());
 
+#ifndef _WIN32 // NOTE: For Win32 it is defined inside server_win32.c
 static void server_status_running (void (*callback)())
 {
     if (callback) callback();
 }
 #define server_status_running(srv) server_status_running(callback);
+#endif
 
 __attribute_cold__
 int lighttpd_launch(
   const char * config_path,
+  const char * modules_path,
   const char * errlog_path,
   void (*callback)()
 ) {
     if (errlog_path && errlog_path[0] != '\0') errlog_to_file(errlog_path);
     else errlog_to_stderr();
 
+    /* TODO: On Win32 it may be used to create / connect to the console.
+    AllocConsole();
+    freopen("CONOUT$", "w", stdout);
+    freopen("CONOUT$", "w", stderr);
+    */
+
     if (!config_path) return -1;
 
     optind = 1;
-    char *argv[] = { "lighttpd", "-D", "-f", (char*)config_path, NULL };
-	return server_main(4, argv, callback);
+    int argc = 4;
+    char *argv[] = { "lighttpd", "-D", "-f", (char*)config_path, NULL, NULL, NULL };
+
+    if (modules_path) {
+      argv[4] = "-m";
+      argv[5] = (char*)modules_path;
+      argc = 6;
+    }
+
+  #ifdef _WIN32
+  return server_main_win32(argc, argv, callback);
+  #else
+	return server_main(argc, argv, callback);
+  #endif
 }
 
+// NOTE: In WIN32 case it should be defined
+// after the code in server_win32.c
+#ifndef _WIN32
 #define server_main(a,b) server_main(a, b, void (*callback)())
+#endif
 
 void lighttpd_graceful_shutdown() {
   graceful_shutdown = 1;
