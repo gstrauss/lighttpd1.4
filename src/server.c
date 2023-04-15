@@ -1299,6 +1299,7 @@ static int server_main_setup_workers (server * const srv, const int npids) {
         if (num_childs > 0) {
             switch ((pid = fork())) {
               case -1:
+                log_error(srv->errh, __FILE__, __LINE__, "Failed to fork()");
                 return -1;
               case 0:
                 child = 1;
@@ -1451,6 +1452,7 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
 				return -1;
 			}
 			if (config_read(srv, optarg)) {
+				log_error(srv->errh, __FILE__, __LINE__, "Failed to read config file");
 				return -1;
 			}
 #ifdef HAVE_FORK
@@ -1481,6 +1483,7 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
 		case 'h': show_help(); return 0;
 		default:
 			show_help();
+			log_error(srv->errh, __FILE__, __LINE__, "Return after show_help()");
 			return -1;
 		}
 	}
@@ -1494,7 +1497,10 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
 		}
 		srv->srvconf.dont_daemonize = 1;
 		srv->srvconf.modules_dir = "modules";
-		if (config_read(srv, "conf/lighttpd.conf")) return -1;
+		if (config_read(srv, "conf/lighttpd.conf")) {
+			log_error(srv->errh, __FILE__, __LINE__, "Failed to read config");
+			return -1;
+		}
 	}
       #ifndef HAVE_FORK
 	srv->srvconf.dont_daemonize = 1;
@@ -1780,6 +1786,7 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
 
 	/* we need root-perms for port < 1024 */
 	if (0 != network_init(srv, srv->stdin_fd)) {
+		log_error(srv->errh, __FILE__, __LINE__, "Failed network_init()");
 		return -1;
 	}
 	srv->stdin_fd = -1;
@@ -1953,6 +1960,7 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
 	}
 
 	if (!config_finalize(srv, &default_server_tag)) {
+		log_error(srv->errh, __FILE__, __LINE__, "Failed to finalize config");
 		return -1;
 	}
 
@@ -1968,7 +1976,10 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
 	 * do this before any further forking is done (workers)
 	 */
 	if (0 == srv->srvconf.dont_daemonize && -1 != parent_pipe_fd) {
-		if (0 > write(parent_pipe_fd, "", 1)) return -1;
+		if (0 > write(parent_pipe_fd, "", 1)) {
+			log_error(srv->errh, __FILE__, __LINE__, "Failed to write into parent pipe");
+			return -1;
+		}
 		close(parent_pipe_fd);
 	}
 
@@ -2019,6 +2030,7 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
 	 *
 	 * */
 	if (0 != network_register_fdevents(srv)) {
+		log_error(srv->errh, __FILE__, __LINE__, "Failed to register fdevents");
 		return -1;
 	}
 
@@ -2045,12 +2057,16 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
   #endif
 
 	if (0 != server_sockets_set_nb_cloexec(srv)) {
+		log_error(srv->errh, __FILE__, __LINE__,
+			"Failed server_sockets_set_nb_cloexec()");
 		return -1;
 	}
 
 	/* plugin hook for worker_init */
-	if (HANDLER_GO_ON != plugins_call_worker_init(srv))
+	if (HANDLER_GO_ON != plugins_call_worker_init(srv)) {
+		log_error(srv->errh, __FILE__, __LINE__, "Failed to call worker init");
 		return -1;
+	}
 
 	if (oneshot_fdout > 0) {
 		if (server_oneshot_init_pipe(srv, oneshot_fd, oneshot_fdout)) {
