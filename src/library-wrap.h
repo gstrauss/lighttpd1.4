@@ -4,6 +4,46 @@
 #include "first.h"
 #include "base.h"
 #include <signal.h>
+#include <stdio.h>
+
+// BEWARE: These errlog_to_file() and errlog_to_stderr(), presumably, duplicate
+// functionality in the normal Lighttpd code, and probably may conflict with it,
+// but for our library scenario we need to do this error log redirection to file
+// as early as possible, if it is opted; we don't wanna rely on the normal
+// Lighttpd code to setup the logging, as before that we can miss all sorts of
+// errors during the Lighttpd server configuration, and we want those errors,
+// if we opt for the log file.
+
+FILE *errlog = 0;
+int original_stderr = -1; // -1 means stderr is not redirected.
+
+/**
+ * @brief Redirects the standard error stream to the specified file, and saves
+ * the original stderr file descriptor to orignal_stderr variable to allow
+ * restoring stderr later.
+ * @param path
+ */
+void errlog_to_file(const char *path) {
+  if (original_stderr == -1) {
+    original_stderr = fileno(stderr);
+    errlog = fopen(path, "a");
+    dup2(fileno(errlog), fileno(stderr));
+  }
+}
+
+/**
+ * @brief Restores the original standard error log stream; noop if it is not
+ * redirected.
+ */
+void errlog_to_stderr() {
+  if (original_stderr != -1) {
+    fflush(stderr);
+    fclose(errlog);
+    errlog = 0;
+    dup2(original_stderr, fileno(stderr));
+    original_stderr = -1;
+  }
+}
 
 #if defined(HAVE_SYSLOG_H) && defined(WITH_ANDROID_NDK_SYSLOG_INTERCEPT)
 
@@ -64,13 +104,29 @@ static void server_status_running (JNIEnv *jenv)
 }
 #define server_status_running(srv) server_status_running(jenv);
 
+/**
+ * @brief Launches the server in JNI use case.
+ *
+ * @param jenv
+ * @param thisObject
+ * @param configPath
+ * @param errlogPath Optional. If given, the stderr stream will be redirected
+ *  to the specified file the first thing in the launch flow. Otherwise, it will
+ *  restore stderr to the original state, if needed.
+ */
 __attribute_cold__
 JNIEXPORT jint JNICALL Java_com_lighttpd_Server_launch(
     JNIEnv *jenv,
     jobject thisObject,
-    jstring configPath
+    jstring configPath,
+    jstring errlogPath
 ) {
     UNUSED(thisObject);
+
+    const char * errlog_path = (*jenv)->GetStringUTFChars(jenv, errlogPath, 0);
+    if (errlog_path[0] != '\0') errlog_to_file(errlog_path);
+    else errlog_to_stderr();
+    (*jenv)->ReleaseStringUTFChars(jenv, errlogPath, errlog_path);
 
     const char * config_path = (*jenv)->GetStringUTFChars(jenv, configPath, 0);
     if (!config_path) return -1;
@@ -106,7 +162,14 @@ static void server_status_running (void (*callback)())
 #define server_status_running(srv) server_status_running(callback);
 
 __attribute_cold__
-int lighttpd_launch(const char * config_path, void (*callback)()) {
+int lighttpd_launch(
+  const char * config_path,
+  const char * errlog_path,
+  void (*callback)()
+) {
+    if (errlog_path && errlog_path[0] != '\0') errlog_to_file(errlog_path);
+    else errlog_to_stderr();
+
     if (!config_path) return -1;
 
     optind = 1;
