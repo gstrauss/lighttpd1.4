@@ -6238,7 +6238,9 @@ PHYSICALPATH_FUNC(mod_webdav_physical_handler)
         const buffer * const vb =
           http_header_request_get(r, HTTP_HEADER_CONTENT_ENCODING,
                                   CONST_STR_LEN("Content-Encoding"));
-        if (vb != NULL) { /*("identity" not expected; should not be listed)*/
+        if (vb != NULL
+               /*(get head query post methods handled elsewhere)*/
+            && !http_method_get_head_query_post(r->http_method)) {
             http_header_response_set(r, HTTP_HEADER_ACCEPT_ENCODING,
                                      CONST_STR_LEN("Accept-Encoding"),
                                      CONST_STR_LEN("identity"));
