@@ -132,6 +132,9 @@ typedef struct {
     int32_t ech_keydir_refresh_interval;
     time_t ech_keydir_refresh_ts;
     const array *ech_public_hosts;
+  #ifndef OPENSSL_NO_ECH
+    OSSL_ECHSTORE *echstore;
+  #endif
 } plugin_ssl_ctx;
 
 typedef struct {
@@ -528,16 +531,16 @@ ssl_tlsext_status_cb(SSL *ssl, void *arg)
 #ifndef OPENSSL_NO_ECH
 
 #ifdef LIGHTTPD_OPENSSL_ECH_DEBUG
-static void ech_key_status_trace (server * const srv, SSL_CTX * const ssl_ctx)
+static void ech_key_status_trace (server * const srv, OSSL_ECHSTORE * const es)
 {
     int numkeys = 0;
-    int ksrv = SSL_CTX_ech_server_get_key_status(ssl_ctx, &numkeys);
+    int ksrv = OSSL_ECHSTORE_num_keys(es, &numkeys);
     if (ksrv != 1)
         log_error(srv->errh, __FILE__, __LINE__,
-          "SSL: SSL_CTX_ech_server_get_key_status failed (%d)", ksrv);
+          "SSL: OSSL_ECHSTORE_num_keys failed (%d)", ksrv);
     else
         log_error(srv->errh, __FILE__, __LINE__,
-          "SSL: SSL_CTX_ech_server_get_key_status number of keys loaded %d",
+          "SSL: OSSL_ECHSTORE_num_keys number of keys loaded %d",
           numkeys);
 }
 #endif
@@ -550,30 +553,33 @@ mod_openssl_refresh_ech_keys_ctx (server * const srv, plugin_ssl_ctx * const s, 
         || s->ech_keydir_refresh_ts + s->ech_keydir_refresh_interval > cur_ts)
         return 1;
 
+    OSSL_ECHSTORE * const es = s->echstore;
+
   #ifdef LIGHTTPD_OPENSSL_ECH_DEBUG
-    ech_key_status_trace(srv, s->ssl_ctx);
+    ech_key_status_trace(srv, es);
   #endif
 
-    if (s->ech_keydir_refresh_interval <= 0) {
-        int nkeys = 0;
-        if (1 != SSL_CTX_ech_server_get_key_status(s->ssl_ctx, &nkeys)
-            || nkeys > 0)
-            /* Nothing to do if refresh time is disabled (zero or negative)
-             * and keys already loaded */
-            return 1;
-    }
+    int nkeys = 0;
+    if (1 != OSSL_ECHSTORE_num_keys(es, &nkeys)) nkeys = 0;
 
-    int rc = SSL_CTX_ech_server_flush_keys(s->ssl_ctx,
-                                           s->ech_keydir_refresh_interval+5);
-    if (1 != rc)
-        log_error(srv->errh, __FILE__, __LINE__,
-          "SSL: SSL_CTX_ech_server_flush_keys failed (%d)", rc);
+    int rc = 1;
+    if (nkeys > 0) {
+        if (s->ech_keydir_refresh_interval <= 0)
+            /* keys loaded and refresh time is disabled (zero or negative) */
+            return 1;
+
+        rc = OSSL_ECHSTORE_flush_keys(es, s->ech_keydir_refresh_interval+5);
+        if (1 != rc)
+            log_error(srv->errh, __FILE__, __LINE__,
+              "SSL: OSSL_ECHSTORE_flush_keys failed (%d)", rc);
+    }
 
     buffer * const b = s->ech_keydir;
     const uint32_t dirlen = buffer_string_length(b);
     DIR * const dp = opendir(b->ptr);
     if (NULL == dp) {
         log_perror(srv->errh,__FILE__,__LINE__,"%s dir:%s",__func__,b->ptr);
+        SSL_CTX_set1_echstore(s->ssl_ctx, es);
         return 0;
     }
 
@@ -589,18 +595,20 @@ mod_openssl_refresh_ech_keys_ctx (server * const srv, plugin_ssl_ctx * const s, 
 
         buffer_append_path_len(b, ep->d_name, nlen);    /* *.ech */
 
-        if (1 == SSL_CTX_ech_server_enable_file(s->ssl_ctx, b->ptr,
-                                                SSL_ECH_USE_FOR_RETRY)) {
+        BIO *in = BIO_new_file(b->ptr, "r");
+        if (in != NULL
+            && 1 == OSSL_ECHSTORE_read_pem(es, in, OSSL_ECH_FOR_RETRY)) {
           #ifdef LIGHTTPD_OPENSSL_ECH_DEBUG
             log_error(srv->errh, __FILE__, __LINE__,
-              "SSL: SSL_CTX_ech_server_enable_file() worked for %s", b->ptr);
+              "SSL: OSSL_ECHSTORE_read_pem() worked for %s", b->ptr);
           #endif
         }
         else {
             log_error(srv->errh, __FILE__, __LINE__,
-              "SSL: SSL_CTX_ech_server_enable_file() failed for %s", b->ptr);
+              "SSL: OSSL_ECHSTORE_read_pem() failed for %s", b->ptr);
             rc = 0;
         }
+        BIO_free_all(in);
 
         buffer_string_set_length(b, dirlen);
     }
@@ -608,9 +616,10 @@ mod_openssl_refresh_ech_keys_ctx (server * const srv, plugin_ssl_ctx * const s, 
     closedir(dp);
 
   #ifdef LIGHTTPD_OPENSSL_ECH_DEBUG
-    ech_key_status_trace(srv, s->ssl_ctx);
+    ech_key_status_trace(srv, es);
   #endif
 
+    rc = SSL_CTX_set1_echstore(s->ssl_ctx, es);
     if (1 == rc) s->ech_keydir_refresh_ts = cur_ts;
     return rc;
 }
@@ -910,12 +919,20 @@ mod_openssl_free_config (server *srv, plugin_data * const p)
 
     if (NULL != p->ssl_ctxs) {
         SSL_CTX * const ssl_ctx_global_scope = p->ssl_ctxs->ssl_ctx;
+        OSSL_ECHSTORE * const echstore_global_scope = p->ssl_ctxs->echstore;
         /* free ssl_ctx from $SERVER["socket"] (if not copy of global scope) */
         for (uint32_t i = 1; i < srv->config_context->used; ++i) {
             plugin_ssl_ctx * const s = p->ssl_ctxs + i;
             if (s->ssl_ctx && s->ssl_ctx != ssl_ctx_global_scope)
                 SSL_CTX_free(s->ssl_ctx);
+          #ifndef OPENSSL_NO_ECH
+            if (s->echstore && s->echstore != echstore_global_scope)
+                OSSL_ECHSTORE_free(s->echstore);
+          #endif
         }
+      #ifndef OPENSSL_NO_ECH
+        OSSL_ECHSTORE_free(echstore_global_scope);
+      #endif
         /* free ssl_ctx from global scope */
         if (ssl_ctx_global_scope)
             SSL_CTX_free(ssl_ctx_global_scope);
@@ -3293,6 +3310,16 @@ mod_openssl_set_defaults_sockets(server *srv, plugin_data *p)
                 s->ech_keydir = du ? &((data_string *)du)->value : NULL;
                 if (s->ech_keydir && buffer_string_is_empty(s->ech_keydir))
                     s->ech_keydir = NULL;
+              #ifndef OPENSSL_NO_ECH
+                if (s->ech_keydir) {
+                    s->echstore = OSSL_ECHSTORE_new(NULL, NULL);
+                    if (s->echstore == NULL) {
+                        log_error(srv->errh, __FILE__, __LINE__,
+                          "SSL: OSSL_ECHSTORE_new failed");
+                        rc = HANDLER_ERROR;
+                    }
+                }
+              #endif
                 du = array_get_element_klen(ech_opts, CONST_STR_LEN("refresh"));
                 s->ech_keydir_refresh_interval =
                   config_plugin_value_to_int32(du, 1800);
