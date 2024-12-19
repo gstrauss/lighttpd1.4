@@ -129,8 +129,8 @@ typedef struct {
 typedef struct {
     SSL_CTX *ssl_ctx;
     buffer *ech_keydir;
-    int32_t ech_keydir_refresh_interval;
-    time_t ech_keydir_refresh_ts;
+    uint32_t ech_keydir_refresh_interval;
+    unix_time64_t ech_keydir_refresh_ts;
     const array *ech_public_hosts;
   #ifndef OPENSSL_NO_ECH
     OSSL_ECHSTORE *echstore;
@@ -545,9 +545,9 @@ static void ech_key_status_trace (server * const srv, OSSL_ECHSTORE * const es)
 }
 #endif
 
-#include <dirent.h>
+#include "sys-dirent.h"
 static int
-mod_openssl_refresh_ech_keys_ctx (server * const srv, plugin_ssl_ctx * const s, const time_t cur_ts)
+mod_openssl_refresh_ech_keys_ctx (server * const srv, plugin_ssl_ctx * const s, const unix_time64_t cur_ts)
 {
     if (NULL == s->ech_keydir
         || s->ech_keydir_refresh_ts + s->ech_keydir_refresh_interval > cur_ts)
@@ -564,18 +564,19 @@ mod_openssl_refresh_ech_keys_ctx (server * const srv, plugin_ssl_ctx * const s, 
 
     int rc = 1;
     if (nkeys > 0) {
-        if (s->ech_keydir_refresh_interval <= 0)
+        time_t refresh_interval = (time_t)(int32_t)s->ech_keydir_refresh_interval;
+        if (refresh_interval <= 0)
             /* keys loaded and refresh time is disabled (zero or negative) */
             return 1;
 
-        rc = OSSL_ECHSTORE_flush_keys(es, s->ech_keydir_refresh_interval+5);
+        rc = OSSL_ECHSTORE_flush_keys(es, refresh_interval+5);
         if (1 != rc)
             log_error(srv->errh, __FILE__, __LINE__,
               "SSL: OSSL_ECHSTORE_flush_keys failed (%d)", rc);
     }
 
     buffer * const b = s->ech_keydir;
-    const uint32_t dirlen = buffer_string_length(b);
+    const uint32_t dirlen = buffer_clen(b);
     DIR * const dp = opendir(b->ptr);
     if (NULL == dp) {
         log_perror(srv->errh,__FILE__,__LINE__,"%s dir:%s",__func__,b->ptr);
@@ -583,17 +584,20 @@ mod_openssl_refresh_ech_keys_ctx (server * const srv, plugin_ssl_ctx * const s, 
         return 0;
     }
 
-    /* load any echconfig files matching <name>.ech
-     *
-     * This code is derived from what was added to openssl s_server in
-     * apps/s_server.c stfcd openssl fork https://github.com/sftcd/openssl
-     */
+    /* load any echconfig files matching <name>.ech */
+    struct stat st;
     for (struct dirent *ep; (ep = readdir(dp)); ) {
-        size_t nlen = strlen(ep->d_name);
+        size_t nlen = _D_EXACT_NAMLEN(ep);
         if (nlen <= 4) continue;
         if (0 != memcmp(ep->d_name+nlen-4, ".ech", 4)) continue;
 
         buffer_append_path_len(b, ep->d_name, nlen);    /* *.ech */
+
+        if (0 == stat(b->ptr, &st)
+            && TIME64_CAST(st.st_mtime) < s->ech_keydir_refresh_ts) {
+            buffer_truncate(b, dirlen);
+            continue;
+        }
 
         BIO *in = BIO_new_file(b->ptr, "r");
         if (in != NULL
@@ -610,7 +614,7 @@ mod_openssl_refresh_ech_keys_ctx (server * const srv, plugin_ssl_ctx * const s, 
         }
         BIO_free_all(in);
 
-        buffer_string_set_length(b, dirlen);
+        buffer_truncate(b, dirlen);
     }
 
     closedir(dp);
@@ -626,7 +630,7 @@ mod_openssl_refresh_ech_keys_ctx (server * const srv, plugin_ssl_ctx * const s, 
 
 
 static void
-mod_openssl_refresh_ech_keys (server * const srv, const plugin_data *p, const time_t cur_ts)
+mod_openssl_refresh_ech_keys (server * const srv, const plugin_data *p, const unix_time64_t cur_ts)
 {
     if (NULL != p->ssl_ctxs) {
         SSL_CTX * const ssl_ctx_global_scope = p->ssl_ctxs->ssl_ctx;
@@ -3322,7 +3326,7 @@ mod_openssl_set_defaults_sockets(server *srv, plugin_data *p)
               #endif
                 du = array_get_element_klen(ech_opts, CONST_STR_LEN("refresh"));
                 s->ech_keydir_refresh_interval =
-                  config_plugin_value_to_int32(du, 1800);
+                  (uint32_t)config_plugin_value_to_int32(du, 1800);
                 du = array_get_element_klen(ech_opts,
                                             CONST_STR_LEN("public-hosts"));
                 if (du && du->type == TYPE_ARRAY) {
