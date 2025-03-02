@@ -53,7 +53,7 @@ sub new {
 		$self->{"win32native"} = 1;
 		# Note: msys2 mingw cross compile/link hangs if MSYS_NO_PATHCONV is set,
 		#       so scope setting MSYS_NO_PATHCONV here for running tests
-		$ENV{MSYS_NO_PATHCONV} = 1;
+		#$ENV{MSYS_NO_PATHCONV} = 1;
 		#$ENV{MSYS2_ARG_CONV_EXCL} = "*";
 	}
 
