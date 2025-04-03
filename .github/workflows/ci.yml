@@ -243,26 +243,26 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          Invoke-WebRequest https://cygwin.com/setup-x86_64.exe -OutFile D:\setup.exe -MaximumRetryCount 3
+          Invoke-WebRequest https://cygwin.com/setup-x86_64.exe -OutFile C:\setup.exe -MaximumRetryCount 3
           $packages = 'autoconf,automake,libtool,m4,make,cmake,meson,ninja,scons,gcc-g++,git,pkgconf,perl,libpcre2-devel,libnettle-devel,libgnutls-devel,mbedtls-devel,libnss-devel,libssl-devel,libbrotli-devel,libdeflate-devel,zlib-devel,libzstd-devel,libsasl2-devel,libkrb5-devel,libdbi-devel,openldap-devel,libmariadb-devel,libpq-devel,libmaxminddb-devel,libunwind-devel,lua-devel,lua5.1-devel,libxml2-devel,libsqlite3-devel,libintl-devel'
           $args = @(
            '-qnO',
-           '-l', "D:\cygwin-packages",
-           '-R', "D:\cygwin",
+           '-l', "C:\cygwin-packages",
+           '-R', "C:\cygwin",
            '-t',
            '-P', "$packages",
            '-s', 'http://mirrors.kernel.org/sourceware/cygwin/'
           )
 
-          & D:\setup.exe $args | Out-Default
+          & C:\setup.exe $args | Out-Default
 
       - run: |
-          echo "D:\cygwin\bin" >> $env:GITHUB_PATH
+          echo "C:\cygwin\bin" >> $env:GITHUB_PATH
         shell: pwsh
 
       - run: |
           # run login shell to copy skeleton profile files
-          & "D:\cygwin\bin\bash.exe" --login
+          & "C:\cygwin\bin\bash.exe" --login
         shell: pwsh
 
       #- uses: cygwin/cygwin-install-action@master
@@ -283,7 +283,7 @@ jobs:
       #      libxml2-devel libsqlite3-devel
       #      libintl-devel
       - name: Compile and Test
-        shell: D:\cygwin\bin\bash.exe --noprofile --norc -o igncr -eo pipefail '{0}'
+        shell: C:\cygwin\bin\bash.exe --noprofile --norc -o igncr -eo pipefail '{0}'
         run: |
           set -e
           export PATH=/usr/bin:$(cygpath ${SYSTEMROOT})/system32
