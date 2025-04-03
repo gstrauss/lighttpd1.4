@@ -248,7 +248,7 @@ jobs:
           $args = @(
            '-qnO',
            '-l', "C:\cygwin-packages",
-           '-R', "C:\cygwin",
+           '-R', "D:\cygwin",
            '-t',
            '-P', "$packages",
            '-s', 'http://mirrors.kernel.org/sourceware/cygwin/'
@@ -257,12 +257,12 @@ jobs:
           & C:\setup.exe $args | Out-Default
 
       - run: |
-          echo "C:\cygwin\bin" >> $env:GITHUB_PATH
+          echo "D:\cygwin\bin" >> $env:GITHUB_PATH
         shell: pwsh
 
       - run: |
           # run login shell to copy skeleton profile files
-          & "C:\cygwin\bin\bash.exe" --login
+          & "D:\cygwin\bin\bash.exe" --login
         shell: pwsh
 
       #- uses: cygwin/cygwin-install-action@master
@@ -283,7 +283,7 @@ jobs:
       #      libxml2-devel libsqlite3-devel
       #      libintl-devel
       - name: Compile and Test
-        shell: C:\cygwin\bin\bash.exe --noprofile --norc -o igncr -eo pipefail '{0}'
+        shell: D:\cygwin\bin\bash.exe --noprofile --norc -o igncr -eo pipefail '{0}'
         run: |
           set -e
           export PATH=/usr/bin:$(cygpath ${SYSTEMROOT})/system32
