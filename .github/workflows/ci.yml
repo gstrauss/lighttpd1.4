@@ -289,7 +289,7 @@ jobs:
           export PATH=/usr/bin:$(cygpath ${SYSTEMROOT})/system32
           export NO_PAM=1 NO_UNWIND=1 NO_WOLFSSL=1
           export SHELL=/bin/dash
-          cd "${{github.workspace}}" && /bin/dash scripts/ci-build.sh autobuild
+          cd "${{github.workspace}}" && /bin/dash scripts/ci-build.sh meson
 
   Windows-VisualStudio:
     runs-on: windows-latest
