@@ -159,7 +159,7 @@ case "${build}" in
 	  build
 	cd build
 	case "${build}" in
-	"autobuild")
+	"meson")
 		meson compile --verbose
 		meson test --verbose
 		;;
