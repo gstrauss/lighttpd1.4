@@ -1461,6 +1461,11 @@ handler_t http_response_read(request_st * const r, http_response_opts * const op
             }
         }
       #else
+       #ifdef USE_MTCP
+        if (opts->fdfmt == S_IFSOCK)
+            n = mtcp_read(mtcp_ctx, fd, b->ptr+buffer_clen(b), avail);
+        else
+       #endif
         n = read(fd, b->ptr+buffer_clen(b), avail);
         if (n < 0) {
             switch (errno) {

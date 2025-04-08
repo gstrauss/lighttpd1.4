@@ -18,6 +18,8 @@
 #include <winsock2.h>   /* closesocket(), WSAPoll() */
 #endif
 
+#include "sys-socket.h" /* USE_MTCP */
+
 #ifdef FDEVENT_USE_LINUX_EPOLL
 __attribute_cold__
 static int fdevent_linux_sysepoll_init(struct fdevents *ev);
@@ -88,6 +90,10 @@ fdevent_config (const char **event_handler_name, log_error_st *errh)
   #ifdef FDEVENT_USE_POLL
     if (NULL != event_handler && 0 == strcmp(event_handler, "select"))
         event_handler = "poll";
+  #endif
+
+  #ifdef USE_MTCP
+    event_handler = "epoll";
   #endif
 
     if (NULL == event_handler) {
@@ -286,7 +292,11 @@ fdevent_sched_run (fdevents * const ev)
       #ifdef _WIN32
         if (0 != closesocket(fd)) /* WSAPoll() valid only on SOCKET */
       #else
+       #ifdef USE_MTCP /* XXX: mtcp_close() valid only on socket? not checked */
+        if (0 != mtcp_close(mtcp_ctx, fd))
+       #else
         if (0 != close(fd))
+       #endif
       #endif
             log_serror(ev->errh, __FILE__, __LINE__, "close() %d", fd);
 
@@ -323,11 +333,18 @@ fdevent_poll (fdevents * const ev, const int timeout_ms)
 #ifdef FDEVENT_USE_LINUX_EPOLL
 
 #include <sys/epoll.h>
+#ifdef USE_MTCP
+#include <eventpoll.h>
+#endif
 
 static int
 fdevent_linux_sysepoll_event_del (fdevents *ev, fdnode *fdn)
 {
+  #ifdef USE_MTCP
+    return mtcp_epoll_ctl(mtcp_ctx, ev->epoll_fd, EPOLL_CTL_DEL, fdn->fd, NULL);
+  #else
     return epoll_ctl(ev->epoll_fd, EPOLL_CTL_DEL, fdn->fd, NULL);
+  #endif
 }
 
 static int
@@ -346,14 +363,22 @@ fdevent_linux_sysepoll_event_set (fdevents *ev, fdnode *fdn, int events)
   #endif
     ep.events = events | EPOLLERR | EPOLLHUP;
     ep.data.ptr = fdn;
+  #ifdef USE_MTCP
+    return mtcp_epoll_ctl(mtcp_ctx, ev->epoll_fd, op, fd, (struct mtcp_epoll_event *)&ep);
+  #else
     return epoll_ctl(ev->epoll_fd, op, fd, &ep);
+  #endif
 }
 
 static int
 fdevent_linux_sysepoll_poll (fdevents * const ev, int timeout_ms)
 {
     struct epoll_event * const restrict epoll_events = ev->epoll_events;
+  #ifdef USE_MTCP
+    int n = mtcp_epoll_wait(mtcp_ctx, ev->epoll_fd, (struct mtcp_epoll_event *)epoll_events, ev->maxfds, timeout_ms);
+  #else
     int n = epoll_wait(ev->epoll_fd, epoll_events, ev->maxfds, timeout_ms);
+  #endif
     for (int i = 0; i < n; ++i) {
         fdnode * const fdn = (fdnode *)epoll_events[i].data.ptr;
         int revents = epoll_events[i].events;
@@ -367,7 +392,11 @@ __attribute_cold__
 static void
 fdevent_linux_sysepoll_free (fdevents *ev)
 {
+  #ifdef USE_MTCP
+    mtcp_close(mtcp_ctx, ev->epoll_fd);
+  #else
     close(ev->epoll_fd);
+  #endif
     free(ev->epoll_events);
 }
 
@@ -394,12 +423,16 @@ fdevent_linux_sysepoll_init (fdevents *ev)
     ev->poll      = fdevent_linux_sysepoll_poll;
     ev->free      = fdevent_linux_sysepoll_free;
 
+ #ifdef USE_MTCP
+    if (-1 == (ev->epoll_fd = mtcp_epoll_create(mtcp_ctx, ev->maxfds))) return -1;
+ #else
   #ifdef EPOLL_CLOEXEC
     if (-1 == (ev->epoll_fd = epoll_create1(EPOLL_CLOEXEC))) return -1;
   #else
     if (-1 == (ev->epoll_fd = epoll_create(ev->maxfds))) return -1;
     fdevent_setfd_cloexec(ev->epoll_fd);
   #endif
+ #endif
 
     ev->epoll_events = ck_calloc(ev->maxfds, sizeof(*ev->epoll_events));
 

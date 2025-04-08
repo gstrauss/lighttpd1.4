@@ -149,6 +149,16 @@ static void connection_handle_shutdown(connection *con) {
 
 	/* close the connection */
 	if (con->fd >= 0
+          #ifdef USE_MTCP /* shutdown() not implemented by mtcp (!!) */
+            /* XXX: incorrect and undesirable to skip shutdown(fd, SHUT_WR);
+             * lighttpd intentionally sends shutdown(fd, SHUT_WR) to client
+             * so that client closes connection and manages TCP wait states
+             * mtcp source code history:
+             *   commit a1c2767498db6f0ebf92d97449b82b678bcc01a8
+             *   "- Small connection termination related fix for lighttpd"
+             */
+            && 0
+          #endif
 	    && (con->is_ssl_sock || 0 == shutdown(con->fd, SHUT_WR))) {
 		con->close_timeout_ts = log_monotonic_secs;
 		request_st * const r = &con->request;
@@ -569,7 +579,11 @@ static int connection_read_cq(connection *con, chunkqueue *cq, off_t max_bytes) 
       #ifdef _WIN32
         len = recv(con->fd, mem, mem_len, 0);
       #else
+       #ifdef USE_MTCP
+        len = mtcp_read(mtcp_ctx, con->fd, mem, mem_len);
+       #else
         len = read(con->fd, mem, mem_len);
+       #endif
       #endif
 
         chunkqueue_use_memory(cq, ckpt, len > 0 ? len : 0);

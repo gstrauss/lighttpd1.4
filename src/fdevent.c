@@ -14,6 +14,10 @@
 #include "ck.h"
 #define force_assert(x) ck_assert(x)
 
+#ifdef USE_MTCP
+__thread mctx_t mtcp_ctx;
+#endif
+
 #ifndef _WIN32
 
 #ifdef SOCK_CLOEXEC
@@ -25,6 +29,7 @@ static int use_sock_nonblock;
 
 void fdevent_socket_nb_cloexec_init (void)
 {
+  #ifndef USE_MTCP
       #ifdef SOCK_CLOEXEC
 	if (use_sock_cloexec) return; /* init once (if successful) */
 	/* Test if SOCK_CLOEXEC is supported by kernel.
@@ -49,6 +54,7 @@ void fdevent_socket_nb_cloexec_init (void)
 		close(fd);
 	}
       #endif
+  #endif
 }
 
 void fdevent_setfd_cloexec(int fd) {
@@ -87,10 +93,17 @@ int fdevent_fcntl_set_nb_cloexec_sock(int fd) {
 	if (use_sock_cloexec && use_sock_nonblock)
 		return 0;
 #endif
+      #ifdef USE_MTCP
+        return mtcp_setsock_nonblock(mtcp_ctx, fd);
+      #else
 	return fdevent_fcntl_set_nb_cloexec(fd);
+      #endif
 }
 
 int fdevent_socket_cloexec(int domain, int type, int protocol) {
+#ifdef USE_MTCP
+	return mtcp_socket(mtcp_ctx, domain, type, protocol);
+#else
 	int fd;
 #ifdef SOCK_CLOEXEC
 	if (use_sock_cloexec)
@@ -102,9 +115,13 @@ int fdevent_socket_cloexec(int domain, int type, int protocol) {
 #endif
 	}
 	return fd;
+#endif
 }
 
 int fdevent_socket_nb_cloexec(int domain, int type, int protocol) {
+#ifdef USE_MTCP
+	return mtcp_socket(mtcp_ctx, domain, type, protocol);
+#else
 	int fd;
 #ifdef SOCK_CLOEXEC
        #ifdef SOCK_NONBLOCK
@@ -129,6 +146,7 @@ int fdevent_socket_nb_cloexec(int domain, int type, int protocol) {
 #endif
 	}
 	return fd;
+#endif
 }
 
 #if 0 /* not used */
@@ -273,7 +291,11 @@ int fdevent_pipe_cloexec (int * const fds, const unsigned int bufsz_hint) {
 
 
 int fdevent_socket_close(int fd) {
+  #ifdef USE_MTCP
+    return mtcp_close(mtcp_ctx, fd);
+  #else
     return close(fd);
+  #endif
 }
 
 
@@ -321,6 +343,16 @@ int fdevent_accept_listenfd(int listenfd, struct sockaddr *addr, size_t *addrlen
 	int fd;
 	socklen_t len = (socklen_t) *addrlen;
 
+     #ifdef USE_MTCP
+	const int sock_cloexec = 1; /*unsupported by mtcp; but pretend it happened*/
+        fd = mtcp_accept(mtcp_ctx, listenfd, addr, &len);
+	if (fd >= 0) {
+            if (mtcp_setsock_nonblock(mtcp_ctx, fd) < 0) {
+                mtcp_close(mtcp_ctx, fd);
+                fd = -1;
+            }
+        }
+     #else
       #if defined(SOCK_CLOEXEC) && defined(SOCK_NONBLOCK)
        #if defined(__NetBSD__)
 	const int sock_cloexec = 1;
@@ -358,6 +390,7 @@ int fdevent_accept_listenfd(int listenfd, struct sockaddr *addr, size_t *addrlen
 	const int sock_cloexec = 0;
 	fd = accept(listenfd, addr, &len);
       #endif
+     #endif
 
 	if (fd >= 0) {
 		*addrlen = (size_t)len;
@@ -756,6 +789,11 @@ pid_t fdevent_waitpid_intr(pid_t pid, int * const status) {
 
 
 ssize_t fdevent_socket_read_discard (int fd, char *buf, size_t sz, int family, int so_type) {
+ #ifdef USE_MTCP
+    UNUSED(family);
+    UNUSED(so_type);
+    return mtcp_read(mtcp_ctx, fd, buf, sz);
+ #else
   #if defined(MSG_TRUNC) && defined(__linux__)
     if ((family == AF_INET || family == AF_INET6) && so_type == SOCK_STREAM) {
         ssize_t len = recv(fd, buf, sz, MSG_TRUNC|MSG_DONTWAIT|MSG_NOSIGNAL);
@@ -766,6 +804,7 @@ ssize_t fdevent_socket_read_discard (int fd, char *buf, size_t sz, int family, i
     UNUSED(so_type);
   #endif
     return read(fd, buf, sz);
+ #endif
 }
 
 
@@ -779,6 +818,10 @@ int fdevent_ioctl_fionread (int fd, int fdfmt, int *toread) {
     if (fdfmt != S_IFIFO) { errno = EOPNOTSUPP; return -1; }
    #else
     UNUSED(fdfmt);
+   #endif
+   #ifdef USE_MTCP
+    if (fdfmt == S_IFSOCK)
+        return mtcp_socket_ioctl(mtcp_ctx, fd, FIONREAD, toread);
    #endif
     return ioctl(fd, FIONREAD, toread);
 }

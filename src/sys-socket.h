@@ -53,4 +53,11 @@ typedef int socklen_t;
 #define SHUT_WR 1
 #endif
 
+#if defined(HAVE_LIBMTCP) \
+ && (HAVE_LIBPSIO || HAVE_LIBDPDK || HAVE_NETMAP)
+#define USE_MTCP
+#include <mtcp_api.h>
+extern __thread mctx_t mtcp_ctx;
+#endif
+
 #endif
