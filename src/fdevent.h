@@ -153,10 +153,18 @@ int fdevent_socket_clr_cloexec(int fd);
 int fdevent_socket_set_nb(int fd);
 int fdevent_socket_set_nb_cloexec(int fd);
 #else
+#include "sys-socket.h"
+#ifdef USE_MTCP
+#define fdevent_socket_set_cloexec(fd)    UNUSED(fd)
+#define fdevent_socket_clr_cloexec(fd)    UNUSED(fd)
+#define fdevent_socket_set_nb(fd)         mtcp_setsock_nonblock(mtcp_ctx, (fd))
+#define fdevent_socket_set_nb_cloexec(fd) mtcp_setsock_nonblock(mtcp_ctx, (fd))
+#else
 #define fdevent_socket_set_cloexec(fd)    (fdevent_setfd_cloexec(fd), 0)
 #define fdevent_socket_clr_cloexec(fd)    (fdevent_clrfd_cloexec(fd), 0)
 #define fdevent_socket_set_nb(fd)         fdevent_fcntl_set_nb(fd)
 #define fdevent_socket_set_nb_cloexec(fd) fdevent_fcntl_set_nb_cloexec(fd)
+#endif
 #endif
 int fdevent_socket_close (int fd);
 ssize_t fdevent_socket_read_discard (int fd, char *buf, size_t sz, int family, int so_type);

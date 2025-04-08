@@ -561,7 +561,12 @@ static int network_server_init(server *srv, const network_socket_config *s, buff
 		}
 		if (-1 != srv_socket->fd) { } else /*fallback to tcp*/
 	  #endif
+	  #ifdef USE_MTCP
+		if (-1 == (srv_socket->fd = mtcp_socket(mtcp_ctx, family, SOCK_STREAM, IPPROTO_TCP))
+		    || mtcp_setsock_nonblock(mtcp_ctx, srv_socket->fd) < 0) {
+	  #else
 		if (-1 == (srv_socket->fd = fdevent_socket_nb_cloexec(family, SOCK_STREAM, IPPROTO_TCP))) {
+	  #endif
 		  #ifndef _WIN32
 			/* some configs might always include IPv6 addresses,
 			 * but some containers might not support IPv6 */
@@ -643,7 +648,11 @@ static int network_server_init(server *srv, const network_socket_config *s, buff
 	}
 
 	if (-1 != stdin_fd) { } else
+  #ifdef USE_MTCP
+	if (0 != mtcp_bind(mtcp_ctx, srv_socket->fd, (struct sockaddr *) &(srv_socket->addr), addr_len)) {
+  #else
 	if (0 != bind(srv_socket->fd, (struct sockaddr *) &(srv_socket->addr), addr_len)) {
+  #endif
 		log_serror(srv->errh, __FILE__, __LINE__, "bind() %s", host);
 		return -1;
 	}
@@ -665,7 +674,11 @@ static int network_server_init(server *srv, const network_socket_config *s, buff
   #endif
 
 	if (-1 != stdin_fd) { } else
+  #ifdef USE_MTCP
+	if (-1 == mtcp_listen(mtcp_ctx, srv_socket->fd, s->listen_backlog)) {
+  #else
 	if (-1 == listen(srv_socket->fd, s->listen_backlog)) {
+  #endif
 		log_serror(srv->errh, __FILE__, __LINE__, "listen()");
 		return -1;
 	}

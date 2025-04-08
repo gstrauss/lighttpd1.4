@@ -134,7 +134,11 @@ static ssize_t network_write_data_len(int fd, const char *data, off_t len) {
   #ifdef _WIN32
     return send(fd, data, len, 0);
   #else
+   #ifdef USE_MTCP
+    return mtcp_write(mtcp_ctx, fd, data, len);
+   #else
     return write(fd, data, len);
+   #endif
   #endif
 }
 
@@ -299,7 +303,11 @@ static int network_writev_mem_chunks(const int fd, chunkqueue * const cq, off_t 
     ssize_t wr = WSASend(fd, chunks, (DWORD)num_chunks, &dw, 0, NULL, NULL);
     if (0 == wr) wr = (ssize_t)dw;
   #else
+   #ifdef USE_MTCP
+    ssize_t wr = mtcp_writev(mtcp_ctx, fd, chunks, num_chunks);
+   #else
     ssize_t wr = writev(fd, chunks, num_chunks);
+   #endif
   #endif
     return network_write_accounting(fd, cq, p_max_bytes, errh, wr, toSend);
 }
@@ -657,6 +665,10 @@ int network_write_init(server *srv) {
             return -1;
         }
     }
+
+  #ifdef USE_MTCP
+    backend = NETWORK_BACKEND_WRITEV;
+  #endif
 
     switch(backend) {
     case NETWORK_BACKEND_SENDFILE:
