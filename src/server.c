@@ -172,6 +172,14 @@ static size_t malloc_top_pad;
 #define unsetenv(name)                _putenv_s((name), "")
 #endif
 
+#ifdef MULTI_THREADED
+#define main main
+#define server_main_multi_threaded main
+#include <pthread.h>
+static pthread_cond_t server_init_cond = PTHREAD_COND_INITIALIZER;
+static pthread_mutex_t server_init_mutex = PTHREAD_MUTEX_INITIALIZER;
+#endif
+
 #include "h1.h"
 static const struct http_dispatch h1_1_dispatch_table = {
   .send_1xx          = h1_send_1xx
@@ -1791,6 +1799,16 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
 	}
 	srv->stdin_fd = -1;
 
+#ifdef MULTI_THREADED /* kludge */
+
+	/* threading kludge repeats calls to server_main_setup(),
+	 * so avoid dropping privileges, chroot, daemonizing, and more
+	 * (could drop privs if nthreads == 1, but not daemonize) */
+	srv->srvconf.dont_daemonize = 1;
+	srv->srvconf.max_worker = 0;
+
+#else
+
 	if (i_am_root) {
 #ifdef HAVE_PWD_H
 		/* set user and group */
@@ -1909,6 +1927,8 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
 		return -1;
 	}
 #endif
+
+#endif /* MULTI_THREADED kludge */
 
 #ifdef __linux__ /*(might occur w/ root on Linux and w/ limited Capabilities)*/
 	if (-1 == pid_fd && 0 != server_pid_file_open(srv, 0))
@@ -2263,6 +2283,14 @@ static void server_main_loop (server * const srv) {
 __attribute_cold__
 __attribute_noinline__
 static int main_init_once (void) {
+  #ifdef MULTI_THREADED
+    /* server_main_multi_threaded() initializes threads serially
+     * so pthread_once() not required for 'once' semantics */
+    static int once;
+    if (once) return 1;
+    once = 1;
+  #endif
+
   #ifdef HAVE_GETUID
   #ifndef HAVE_ISSETUGID
   #define issetugid() (geteuid() != getuid() || getegid() != getgid())
@@ -2354,6 +2382,11 @@ int server_main (int argc, char ** argv) {
         }
 
         rc = server_main_setup(srv, argc, argv);
+      #ifdef MULTI_THREADED
+        pthread_mutex_lock(&server_init_mutex);
+        pthread_cond_signal(&server_init_cond);
+        pthread_mutex_unlock(&server_init_mutex);
+      #endif
         if (rc > 0) {
             server_status_running(srv);
 
@@ -2404,3 +2437,150 @@ int server_main (int argc, char ** argv) {
 
     return rc;
 }
+
+
+#ifdef MULTI_THREADED
+
+#include <numa.h>
+#include <sched.h>
+/* (copied from original patches) */
+static int
+core_affinitize(int cpu)
+{
+    cpu_set_t *cmask;
+    struct bitmask *bmask;
+    size_t n;
+    int ret;
+
+    n = sysconf(_SC_NPROCESSORS_ONLN);
+
+    if (cpu < 0 || cpu >= (int) n) {
+        errno = -EINVAL;
+        return -1;
+    }
+
+    cmask = CPU_ALLOC(n);
+    if (cmask == NULL)
+            return -1;
+
+    CPU_ZERO_S(n, cmask);
+    CPU_SET_S(cpu, n, cmask);
+
+    ret = sched_setaffinity(0, n, cmask);
+
+    CPU_FREE(cmask);
+
+    if (numa_max_node() == 0)
+        return ret;
+
+    bmask = numa_bitmask_alloc(16);
+    assert(bmask);
+
+    numa_bitmask_setbit(bmask, cpu % 2);
+    numa_set_membind(bmask);
+    numa_bitmask_free(bmask);
+
+    return ret;
+}
+
+typedef struct mtcp_thread_data {
+  int nthread;
+  int argc;
+  char **argv;
+} mtcp_thread_data;
+
+__attribute_cold__
+static void *
+server_main_mtcp_thread (void *vdata)
+{
+    mtcp_thread_data * const mdata = (mtcp_thread_data *)vdata;
+    const int ncpu = mdata->nthread;
+
+    /* CPU affinity */
+    core_affinitize(ncpu);
+
+    server_main(mdata->argc, mdata->argv);
+
+    pthread_exit(NULL);
+    return NULL;
+}
+
+__attribute_cold__
+int server_main_multi_threaded (int argc, char ** argv)
+{
+    /* lighttpd is not written to be thread-safe.
+     *
+     * This patch is part of a kludge to have lighttpd run multiple
+     * threads of independent (struct server) instances.
+     *
+     * Original patches tried to scale lighttpd to threads,
+     * though justification for such threading was not documented.
+     *
+     * Question: could the lighttpd base remain single-threaded
+     * and libmtcp create additional threads for libmtcp work?
+     */
+
+    if (!main_init_once()) return -1;
+
+    const char *mtcp_num_cores = getenv("MTCP_NUM_CORES");
+    int nthreads = mtcp_num_cores ? atoi(mtcp_num_cores) : 1;
+    /*(if -1 is to be special-cased, must set nthreads > 0)*/
+    if (nthreads <= 0) {
+        fprintf(stderr, "MTCP_NUM_CORES <= 0\n");
+        return -1;
+    }
+
+    sigset_t sigs;
+    sigemptyset(&sigs);
+    sigaddset(&sigs, SIGINT);
+    sigaddset(&sigs, SIGTERM);
+    sigaddset(&sigs, SIGHUP);
+    sigaddset(&sigs, SIGALRM);
+    sigaddset(&sigs, SIGUSR1);
+    pthread_sigmask(SIG_BLOCK, &sigs, NULL);
+
+  #if defined(__STDC_VERSION__) && __STDC_VERSION__-0 >= 199901L /* C99 */
+    pthread_t threads[nthreads]; /*(C99 dynamic array)*/
+  #else
+    pthread_t * const restrict threads =
+      (pthread_t *)calloc(nthreads, sizeof(pthread_t));
+  #endif
+
+    /* serialize thread creation and wait for server_main_setup() to complete */
+    pthread_mutex_lock(&server_init_mutex);
+
+    mtcp_thread_data mdata; /*(reusable since pthread_create() serialized)*/
+    mdata.nthread = 0;
+    mdata.argc = argc;
+    mdata.argv = argv;
+    do {
+        int err = pthread_create(threads+mdata.nthread, NULL,
+                                 server_main_mtcp_thread, (void*)&mdata);
+        if (__builtin_expect( (0 != err), 0)) {
+            fprintf(stderr, "error: failed spawning thread (%d)\n", err);
+            srv_shutdown = 1;
+            /*(pthread_cancel will likely cause resource leaks, but exit soon)*/
+            /*while (i) pthread_cancel(threads+(i--));*/
+            break; /* (unexpected) fatal error */
+        }
+        pthread_cond_wait(&server_init_cond, &server_init_mutex);
+        optind = 1;
+    } while (++mdata.nthread < nthreads);
+
+    pthread_mutex_unlock(&server_init_mutex);
+
+    pthread_sigmask(SIG_UNBLOCK, &sigs, NULL);
+
+    /* main thread waits and collects threads in reverse order from create
+     * (in case first thread needs to performs some init and cleanup once) */
+    while (mdata.nthread)
+        pthread_join(threads[--mdata.nthread], NULL);
+
+  #if !(defined(__STDC_VERSION__) && __STDC_VERSION__-0 >= 199901L) /* !C99 */
+    free(threads);
+  #endif
+
+    return 0;
+}
+
+#endif /* MULTI_THREADED */
