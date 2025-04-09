@@ -4,6 +4,7 @@
 #include <assert.h>
 
 #include "chunk.h"
+#include "log.h"
 
 void test_mod_access (void);
 void test_mod_alias (void);
@@ -17,6 +18,7 @@ void test_mod_userdir (void);
 
 int main(void) {
     chunkqueue_set_tempdirs_default(NULL, 0);
+    log_set_global_errh(NULL, 0);
 
     test_mod_access();
     test_mod_alias();

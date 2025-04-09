@@ -87,7 +87,7 @@ static void handler_ctx_free(handler_ctx *hctx) {
 }
 
 /* The newest modified time of included files for include statement */
-static volatile unix_time64_t include_file_last_mtime = 0;
+static __thread volatile unix_time64_t include_file_last_mtime = 0;
 
 INIT_FUNC(mod_ssi_init) {
 	plugin_data * const p = ck_calloc(1, sizeof(*p));

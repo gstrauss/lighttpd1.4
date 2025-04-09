@@ -24,7 +24,7 @@
 #endif
 
 
-static const request_config *request_config_defaults;
+static __thread const request_config *request_config_defaults;
 
 
 void
@@ -276,7 +276,7 @@ request_free_data (request_st * const r)
 
 
 /* linked list of (request_st *) cached for reuse */
-static request_st *reqpool;
+static __thread request_st *reqpool;
 
 
 void

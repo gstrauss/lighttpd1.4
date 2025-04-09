@@ -103,7 +103,7 @@ typedef struct {
     array tokens;
 } plugin_data;
 
-static plugin_data *mod_extforward_plugin_data_singleton;
+static __thread plugin_data *mod_extforward_plugin_data_singleton;
 static int extforward_check_proxy;
 
 

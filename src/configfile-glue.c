@@ -17,7 +17,7 @@
 #include <stdlib.h>     /* strtol */
 
 __declspec_dllexport__
-array plugin_stats; /* global */
+__thread array plugin_stats; /* global */
 
 /**
  * like all glue code this file contains functions which

@@ -34,7 +34,7 @@ struct fdlog_files_t {
     uint32_t used;
 };
 
-static struct fdlog_files_t fdlog_files;
+static __thread struct fdlog_files_t fdlog_files;
 
 typedef struct fdlog_pipe {
     /* ((fdlog_st *) is ptr rather than inlined struct since multiple callers
@@ -52,7 +52,7 @@ struct fdlog_pipes_t {
     uint32_t used;
 };
 
-static struct fdlog_pipes_t fdlog_pipes;
+static __thread struct fdlog_pipes_t fdlog_pipes;
 
 
 static pid_t
@@ -333,7 +333,7 @@ fdlog_flushall (fdlog_st * const errh)
 
 #include <syslog.h>
 
-static int fdlog_syslogging;
+static __thread int fdlog_syslogging;
 
 void
 fdlog_closelog (void)

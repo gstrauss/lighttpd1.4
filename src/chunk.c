@@ -55,7 +55,7 @@ mmap_align_offset (off_t start)
 
 #define mmap_align_offset(offset) ((offset) & chunk_pagemask)
 static off_t chunk_pagemask = 0;
-static int chunk_mmap_flags = MAP_SHARED;
+static __thread int chunk_mmap_flags = MAP_SHARED;
 
 #endif /* HAVE_MMAP */
 
@@ -63,12 +63,12 @@ static int chunk_mmap_flags = MAP_SHARED;
 /* default 1 MB */
 #define DEFAULT_TEMPFILE_SIZE (1 * 1024 * 1024)
 
-static size_t chunk_buf_sz = 8192;
-static chunk *chunks, *chunks_oversized, *chunks_filechunk;
-static chunk *chunk_buffers;
-static int chunks_oversized_n;
-static const array *chunkqueue_default_tempdirs = NULL;
-static off_t chunkqueue_default_tempfile_size = DEFAULT_TEMPFILE_SIZE;
+static __thread size_t chunk_buf_sz = 8192;
+static __thread chunk *chunks, *chunks_oversized, *chunks_filechunk;
+static __thread chunk *chunk_buffers;
+static __thread int chunks_oversized_n;
+static __thread const array *chunkqueue_default_tempdirs = NULL;
+static __thread off_t chunkqueue_default_tempfile_size = DEFAULT_TEMPFILE_SIZE;
 static const char *env_tmpdir = NULL;
 
 void chunkqueue_set_chunk_size (size_t sz)
@@ -1225,7 +1225,7 @@ ssize_t chunkqueue_append_splice_pipe_tempfile(chunkqueue * const restrict cq, c
     return -EIO; /*(not reached)*/
 }
 
-static int cqpipes[2] = { -1, -1 };
+static __thread int cqpipes[2] = { -1, -1 };
 
 __attribute_cold__
 __attribute_noinline__

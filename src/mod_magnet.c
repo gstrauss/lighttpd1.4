@@ -64,7 +64,7 @@ typedef struct {
     script_cache cache;
 } plugin_data;
 
-static plugin_data *plugin_data_singleton;
+static __thread plugin_data *plugin_data_singleton;
 
 INIT_FUNC(mod_magnet_init) {
     plugin_data_singleton = (plugin_data *)ck_calloc(1, sizeof(plugin_data));
