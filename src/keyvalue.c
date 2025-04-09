@@ -27,7 +27,7 @@
 #endif
 
 #ifdef HAVE_PCRE2_H
-static struct pcre2_real_match_data_8 *keyvalue_match_data;
+static __thread struct pcre2_real_match_data_8 *keyvalue_match_data;
 #endif
 
 typedef struct pcre_keyvalue {

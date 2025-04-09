@@ -47,7 +47,7 @@ typedef struct stat_cache {
 	struct stat_cache_fam *scf;
 } stat_cache;
 
-static stat_cache sc;
+static __thread stat_cache sc;
 
 
 __attribute_noinline__

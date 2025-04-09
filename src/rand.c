@@ -220,25 +220,25 @@ static int li_rand_device_bytes (unsigned char *buf, int num)
     return 0;
 }
 
-static int li_rand_inited;
-static unsigned short xsubi[3];
+static __thread int li_rand_inited;
+static __thread unsigned short xsubi[3];
 #ifdef USE_MBEDTLS_CRYPTO
 #if !defined(MBEDTLS_USE_PSA_CRYPTO)
 #ifdef MBEDTLS_ENTROPY_C
-static mbedtls_entropy_context entropy;
+static __thread mbedtls_entropy_context entropy;
 #ifdef MBEDTLS_CTR_DRBG_C
-static mbedtls_ctr_drbg_context ctr_drbg;
+static __thread mbedtls_ctr_drbg_context ctr_drbg;
 #endif
 #endif
 #endif
 #endif
 #ifdef USE_WOLFSSL_CRYPTO
-static WC_RNG wolf_globalRNG;
+static __thread WC_RNG wolf_globalRNG;
 #endif
 #ifdef USE_NETTLE_CRYPTO
-static struct knuth_lfib_ctx knuth_lfib_ctx;
-static struct arcfour_ctx    arcfour_ctx;
-static struct yarrow256_ctx  yarrow256_ctx;
+static __thread struct knuth_lfib_ctx knuth_lfib_ctx;
+static __thread struct arcfour_ctx    arcfour_ctx;
+static __thread struct yarrow256_ctx  yarrow256_ctx;
 #endif
 
 #ifdef USE_NETTLE_CRYPTO

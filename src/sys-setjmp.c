@@ -20,11 +20,12 @@ typedef int sig_atomic_t;
 #include "ck.h"
 
 /*(note: would need to be thread-local to be thread-safe)*/
-static volatile sig_atomic_t sys_setjmp_sigbus_jmp_valid;
+static __thread volatile sig_atomic_t sys_setjmp_sigbus_jmp_valid;
 #ifdef _WIN32
+__declspec(thread)
 static jmp_buf sys_setjmp_sigbus_jmp_buf;
 #else
-static sigjmp_buf sys_setjmp_sigbus_jmp_buf;
+static __thread sigjmp_buf sys_setjmp_sigbus_jmp_buf;
 #endif
 
 __attribute_noreturn__

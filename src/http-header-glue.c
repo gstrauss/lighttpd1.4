@@ -192,8 +192,8 @@ struct mtime_cache_type {
     unix_time64_t mtime;  /* key */
     buffer str;    /* buffer for string representation */
 };
-static struct mtime_cache_type mtime_cache[MTIME_CACHE_MAX];
-static char mtime_cache_str[MTIME_CACHE_MAX][HTTP_DATE_SZ];
+static __thread struct mtime_cache_type mtime_cache[MTIME_CACHE_MAX];
+static __thread char mtime_cache_str[MTIME_CACHE_MAX][HTTP_DATE_SZ];
 /* 30-chars for "%a, %d %b %Y %T GMT" */
 
 void strftime_cache_reset(void) {

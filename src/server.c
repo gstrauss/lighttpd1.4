@@ -2267,7 +2267,9 @@ static void server_main_loop (server * const srv) {
 		}
 
 	  #ifndef _MSC_VER
+	  #ifndef MULTI_THREADED
 		static
+	  #endif
 	  #endif
 		connection * const sentinel =
 		  (connection *)(uintptr_t)&log_con_jqueue;

@@ -26,16 +26,17 @@
 #include "ck.h"
 #include "fdlog.h"
 
-static fdlog_st log_stderrh = { FDLOG_FD, STDERR_FILENO, { NULL, 0, 0 }, NULL };
-static fdlog_st *log_errh = &log_stderrh;
-static unix_time64_t tlast;
-static uint32_t thp;
-static uint32_t tlen;
-static char tstr[24]; /* 20 "%F %T" incl '\0' +2 ": " */
+static __thread fdlog_st log_stderrh = { FDLOG_FD, STDERR_FILENO, { NULL, 0, 0 }, NULL };
+//static fdlog_st *log_errh = &log_stderrh;
+static __thread fdlog_st *log_errh;
+static __thread unix_time64_t tlast;
+static __thread uint32_t thp;
+static __thread uint32_t tlen;
+static __thread char tstr[24]; /* 20 "%F %T" incl '\0' +2 ": " */
 
 /* log_con_jqueue instance here to be defined in shared object (see base.h) */
 __declspec_dllexport__
-connection *log_con_jqueue;
+__thread connection *log_con_jqueue;
 
 __declspec_dllexport__
 unix_time64_t log_epoch_secs = 0;
