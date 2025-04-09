@@ -178,6 +178,7 @@ static size_t malloc_top_pad;
 #include <pthread.h>
 static pthread_cond_t server_init_cond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t server_init_mutex = PTHREAD_MUTEX_INITIALIZER;
+#include "sys-socket.h" /* USE_MTCP */
 #endif
 
 #include "h1.h"
@@ -995,6 +996,11 @@ static void show_features (void) {
       "\t+ SQLite support\n"
 #else
       "\t- SQLite support\n"
+#endif
+#ifdef USE_MTCP
+      "\t+ MTCP support\n"
+#else
+      "\t- MTCP support\n"
 #endif
       ;
   show_version();
@@ -2030,7 +2036,22 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
 	}
 #endif
 
+  #ifdef USE_MTCP
+	/* override lighttpd.conf settings w/ MTCP settings from environment
+	 * (mtcp_setconf() in server_main_multi_threaded() before reading config)
+	 * These settings are per-thread due to (struct server *) per thread.
+	 * While RLIMIT_NOFILE is per process, mtcp handles fds differently. */
+	const char *mtcp_num_cores = getenv("MTCP_NUM_CORES");
+	const int nthreads = mtcp_num_cores ? atoi(mtcp_num_cores) : 1;
+	const char *mtcp_max_concurrency = getenv("MTCP_MAX_CONCURRENCY");
+	int max_conns = mtcp_max_concurrency
+	  ? atoi(mtcp_max_concurrency) / nthreads
+	  : 16384;
+	srv->srvconf.max_conns = max_conns < 65536 ? max_conns : 65535;
+	srv->max_fds = (int)srv->srvconf.max_conns * 2;
+  #else
 	srv->max_fds = (int)srv->srvconf.max_fds;
+  #endif
         if (srv->max_fds < 32) /*(sanity check; not expected)*/
             srv->max_fds = 32; /*(server load checks will fail if too low)*/
 	srv->ev = fdevent_init(srv->srvconf.event_handler, &srv->max_fds, &srv->cur_fds, srv->errh);
@@ -2443,6 +2464,7 @@ int server_main (int argc, char ** argv) {
 
 #ifdef MULTI_THREADED
 
+#ifndef USE_MTCP
 #include <numa.h>
 #include <sched.h>
 /* (copied from original patches) */
@@ -2484,6 +2506,7 @@ core_affinitize(int cpu)
 
     return ret;
 }
+#endif
 
 typedef struct mtcp_thread_data {
   int nthread;
@@ -2499,10 +2522,27 @@ server_main_mtcp_thread (void *vdata)
     const int ncpu = mdata->nthread;
 
     /* CPU affinity */
+  #ifdef USE_MTCP
+    mtcp_core_affinitize(ncpu);
+  #else
     core_affinitize(ncpu);
+  #endif
+
+  #ifdef USE_MTCP
+    /* initialize the per-cpu mctx context */
+    mtcp_ctx = mtcp_create_context(ncpu);
+    if (!mtcp_ctx) {
+        fprintf(stderr, "Failed to create mtcp context!\n");
+        pthread_exit(NULL);
+        return NULL;
+    }
+  #endif
 
     server_main(mdata->argc, mdata->argv);
 
+  #ifdef USE_MTCP
+    mtcp_destroy_context(mtcp_ctx);
+  #endif
     pthread_exit(NULL);
     return NULL;
 }
@@ -2531,6 +2571,44 @@ int server_main_multi_threaded (int argc, char ** argv)
         fprintf(stderr, "MTCP_NUM_CORES <= 0\n");
         return -1;
     }
+
+  #ifdef USE_MTCP
+    const char *mtcp_max_concurrency = getenv("MTCP_MAX_CONCURRENCY");
+    int max_conns = mtcp_max_concurrency ? atoi(mtcp_max_concurrency) : 16384;
+    if (max_conns <= 0) {
+        fprintf(stderr, "MTCP_MAX_CONCURRENCY <= 0\n");
+        return -1;
+    }
+    /* overrides lighttpd.conf server.max-connections and server.max-fds */
+
+    /**
+     * it is important that core limit is set
+     * before mtcp_init() is called. You can
+     * not set core_limit after mtcp_init()
+     */
+    struct mtcp_conf mcfg;
+    mtcp_getconf(&mcfg);
+    mcfg.num_cores = nthreads;
+    mcfg.max_concurrency = mcfg.max_num_buffers = max_conns;
+    mtcp_setconf(&mcfg);
+
+    /* initialize mtcp context */
+    if (mtcp_init("mtcp.conf")) {
+        fprintf(stderr, "Failed to initialize mtcp\n");
+        mtcp_destroy();
+        return -1;
+    }
+
+    /* undo *obnoxious* libmtcp library behavior:
+     * mtcp_init() sets signal handler for SIGINT unconditionally
+     * Original patches called mtcp_register_signal(SIGINT, signal_handler)
+     * and signal_handler was patched to unconditionally call exit(EXIT_SUCCESS)
+     * #ifdef HAVE_LIBDPDK, which is also *obnoxious* libmtcp library behavior.
+     * lighttpd uses SIGINT to signal graceful termination.
+     * lighttpd uses SIGTERM to signal quick/ungraceful termination. */
+    sighandler_t mtcp_sigint_handler = signal(SIGINT, SIG_DFL);
+    server_main_setup_signals();
+  #endif
 
     sigset_t sigs;
     sigemptyset(&sigs);
@@ -2580,6 +2658,13 @@ int server_main_multi_threaded (int argc, char ** argv)
 
   #if !(defined(__STDC_VERSION__) && __STDC_VERSION__-0 >= 199901L) /* !C99 */
     free(threads);
+  #endif
+
+  #ifdef USE_MTCP
+    /*(should not be necessary to signal)*/
+    if (mtcp_sigint_handler) mtcp_sigint_handler(SIGINT);
+    /* destroy mtcp context */
+    mtcp_destroy();
   #endif
 
     return 0;

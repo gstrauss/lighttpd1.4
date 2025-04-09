@@ -628,6 +628,7 @@ static int network_server_init(server *srv, const network_socket_config *s, buff
 	srv->cur_fds = srv_socket->fd;
   #endif
 
+  #ifndef USE_MTCP
 	if (fdevent_set_so_reuseaddr(srv_socket->fd, 1) < 0) {
 		log_serror(srv->errh, __FILE__, __LINE__, "setsockopt(SO_REUSEADDR)");
 		return -1;
@@ -638,6 +639,7 @@ static int network_server_init(server *srv, const network_socket_config *s, buff
 		log_serror(srv->errh, __FILE__, __LINE__, "setsockopt(SO_REUSEPORT)");
 		return -1;
 	}
+  #endif
   #endif
 
 	if (family != AF_UNIX) {
