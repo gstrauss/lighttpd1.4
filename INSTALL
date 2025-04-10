@@ -1,3 +1,15 @@
+================================================================================
+ INSTALLATION
+================================================================================
+
+This guide describes installation of lighttpd both for Linux and mTCP.
+For Linux, we also provide the patches for multi-threading and SO_REUSEPORT.
+For more detail, please look at the description below.
+Each version of lighttpd should be configured differently and then compiled.
+
+================================================================================
+ Original version
+================================================================================
 
 ============
 Installation
@@ -192,3 +204,137 @@ build using CMake and Xcode on Mac OS X with MacPorts
   $ cmake -Wno-dev -DWITH_PCRE2=1 -DWITH_OPENSSL=1 -DWITH_LUA=1 -DWITH_ZLIB=1 -DWITH_ZSTD=1 -DWITH_BROTLI=1 -DWITH_WEBDAV_PROPS=1 .
   $ make -j 4
   $ make test
+
+
+================================================================================
+ mTCP version
+================================================================================
+
+You may need to install the following packages to compile lighttpd:
+  - gcc (Ubuntu package: gcc)
+  - gdb (Ubuntu package: gdb)
+  - make (Ubuntu package: make)
+  - pcre2-devel (Ubuntu package: libpcre2-dev)
+  - numactl-devel (Ubuntu package: libnuma-dev)
+
+Sample config files referenced below may be viewed from the *ancient* patch set:
+https://github.com/mtcp-stack/mtcp/tree/master/apps/lighttpd-1.4.32/doc/config/
+
+
+Configure the program with the following arguments:
+
+  $ ./configure CFLAGS="-O3" \
+    --with-libmtcp=${PATH_TO_LIBMTCP} \
+    --with-libpsio=${PATH_TO_LIBPSIO} \
+    --with-libdpdk=${PATH_TO_LIBDPDK} \
+    --with-libonvm=${PATH_TO_LIBONVM} \
+    --enable-netmap
+
+  (e.g.
+        $ ./configure CFLAGS="-g -O3" \
+        --with-libmtcp="<$PATH_TO_MTCP_RELEASE_V3>/mtcp/" \
+        --with-libpsio="<$PATH_TO_MTCP_RELEASE_V3>/io_engine/" \
+        --with-libdpdk="$RTE_SDK/$RTE_TARGET" \
+        --with-libonvm="<$PATH_TO_ONVM>" \
+        --enable-netmap
+  )
+
+The path should be absolute.
+
+  ## For debugging
+  $ ./configure CFLAGS="-g -DINFO -DDBGERR" \
+    --with-libmtcp=${PATH_TO_LIBMTCP} --with-libpsio=${PATH_TO_LIBPSIO} \
+    --with-libdpdk=${PATH_TO_LIBDPDK} --with-libonvm=${PATH_TO_LIBONVM} \
+    --enable-netmap
+
+  (e.g.
+        $ ./configure CFLAGS="-g -DINFO -DDBGERR" \
+        --with-libmtcp="<$PATH_TO_MTCP_RELEASE_V3>/mtcp/" \
+        --with-libpsio="<$PATH_TO_MTCP_RELEASE_V3>/io_engine/" \
+        --with-libdpdk="$RTE_SDK/$RTE_TARGET" \
+        --with-libonvm="<$PATH_TO_ONVM>" \
+        --enable-netmap
+  )
+
+Environment variable MTCP_MAX_CONCURRENCY is used to configure
+mtcp_conf max_concurrency and max_num_buffers, as well as override
+lighttpd.conf server.max-connections and server.max-fds (per thread).
+A larger MTCP_MAX_CONCURRENCY uses more memory, so avoid setting it
+unnecessarily high.  MTCP_MAX_CONCURRENCY=262144 is high.
+
+lighttpd.conf server.max-fds is also used to set the process-wide RLIMIT_NOFILE,
+and it is best to omit lighttpd.conf server.max-fds and instead set ulimits
+prior to executing lighttpd.
+
+Please remember to adjust lighttpd.conf file carefully.
+Recommended: omit setting server.max-fds; set ulimits prior to lighttpd exec
+             OR server.max-fds = 65535 (or something larger than default 4096)
+Recommended: server.listen-backlog = 40960
+Recommended: disable accesslog to reduce server work and increase performance
+
+Also, remember to locate the 'mtcp.conf' at the directory where the binary lies.
+  -- This should be $<path_to_lighttpd>/src/mtcp.conf
+Sample mtcp.conf:
+https://github.com/mtcp-stack/mtcp/blob/master/apps/lighttpd-1.4.32/src/mtcp.conf
+
+Sample lighttpd configuration files are placed at doc/config/ on github.
+https://github.com/mtcp-stack/mtcp/tree/master/apps/lighttpd-1.4.32/doc/config/
+The default sample config file assumes that it host web pages in /srv/www/htdocs
+directory while it does error logging in /tmp/lighttpd/error.log file. Please
+make sure that the directories are created before running lighttpd.
+ - Default: lighttpd.conf
+ - For mTCP: m-lighttpd.conf
+
+Please use the following command to run lighttpd:
+  $ export MTCP_NUM_CORES=${NO_OF_CORES}
+  $ export MTCP_MAX_CONCURRENCY=32768
+  $ ulimit -n $((MTCP_MAX_CONCURRENCY * 2))
+  $ ./src/lighttpd -D -f ${PATH_TO_CONFIG_FILE}
+e.g.
+  $ export MTCP_NUM_CORES=8
+  $ export MTCP_MAX_CONCURRENCY=32768
+  $ ulimit -n $((MTCP_MAX_CONCURRENCY * 2))
+  $ ./src/lighttpd -D -f ../doc/config/m-lighttpd.conf
+
+Both PATH_OF_CONFIG_FILE and NO_OF_CORES options are required.
+If running lighttpd using sudo, place commands in a shell script,
+including the environment settings, and use sudo to run the shell script.
+
+================================================================================
+ Multi-threaded REUSEPORT version (on Linux)
+================================================================================
+
+First, check whether your kernel version is higher than 3.9. This SO_REUSEPORT
+option is supported only after Linux-3.9.
+
+Then, please check whether SO_REUSEPORT is defined. Please update
+/usr/include/asm-generic/socket.h by adding the following line.
+(if it is not already defined)
+
+#define SO_REUSEPORT 15
+
+
+Aside: original patches offered an option to share listen sockets among threads
+instead of using SO_REUSEPORT.  While possible, that is not implemented in the
+current patch set.
+
+
+Configure the program with the following arguments:
+
+  $ ./configure CFLAGS="-O3" --enable-multithreading
+
+Please remember to adjust lighttpd.conf file carefully.
+Recommended: comment out server.listen-backlog; use the lighttpd defaults (4096)
+Recommended: disable accesslog to reduce server work and increase performance
+A sample lighttpd.conf file is placed@: doc/config/lighttpd.conf
+https://github.com/mtcp-stack/mtcp/tree/master/apps/lighttpd-1.4.32/doc/config/
+
+Please use the following command to run lighttpd:
+  $ export MTCP_NUM_CORES=${NO_OF_CORES}
+  $ ./src/lighttpd -D -f ${PATH_TO_CONFIG_FILE}
+
+================================================================================
+
+                    Contact: mtcp-user at list.ndsl.kaist.edu
+                               April 2, 2014.
+              Muhammad Asim Jamshed <ajamshed at ndsl.kaist.edu>

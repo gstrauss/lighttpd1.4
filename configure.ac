@@ -1722,6 +1722,123 @@ if test "$extrawarnings" = true || test "$extrawarnings" = error; then
   fi
 fi
 
+AC_MSG_CHECKING(for multi-threading mode)
+AC_ARG_ENABLE(multithreading,
+ AC_HELP_STRING([--enable-multithreading],[enable posix multi-threading support]),
+ [case "${enableval}" in
+   yes) multithreading=true ;;
+    no) multithreading=false ;;
+     *) AC_MSG_ERROR(bad value ${enableval} for --enable-multithreading) ;;
+  esac],[multithreading=false])
+
+if test x$multithreading = xtrue; then
+    CFLAGS="${CFLAGS} -DMULTI_THREADED"
+    LDFLAGS="${LDFLAGS} -lpthread -lnuma"
+    AC_MSG_RESULT(yes)
+else
+    AC_MSG_RESULT(no)
+fi
+
+dnl checking for mtcp
+AC_MSG_CHECKING(for mtcp support (multhreading mode enabled))
+AC_ARG_WITH(libmtcp,
+    AC_HELP_STRING([--with-libmtcp@<:@=PATH@:>@],[Include libmtcp support in PATH/include and PATH/lib]),
+    [WITH_LIBMTCP=$withval],[WITH_LIBMTCP=no])
+
+LIBMTCP_CFLAGS=""
+LIBMTCP_LIBS=""
+
+if test "$WITH_LIBMTCP" != "no"; then
+	LIBMTCP_CFLAGS="-I$WITH_LIBMTCP/lib/ -I$WITH_LIBMTCP/src/include/ -DMULTI_THREADED"
+	LIBMTCP_LIBS="$WITH_LIBMTCP/lib/libmtcp.a -lpthread -lnuma -lrt -lgmp"
+	CFLAGS="${CFLAGS} ${LIBMTCP_CFLAGS}"
+	AC_DEFINE([HAVE_LIBMTCP], [1], [libmtcp support])
+	AC_MSG_RESULT(yes)
+else
+	AC_MSG_RESULT(no)
+fi
+
+AC_SUBST(LIBMTCP_CFLAGS)
+AC_SUBST(LIBMTCP_LIBS)
+
+AC_MSG_CHECKING(for psio support)
+AC_ARG_WITH(libpsio,
+    AC_HELP_STRING([--with-libpsio@<:@=PATH@:>@],[Include libpsio support in PATH/include and PATH/lib]),
+    [WITH_LIBPSIO=$withval],[WITH_LIBPSIO=no])
+
+LIBPSIO_CFLAGS=""
+LIBPSIO_LIBS=""
+
+if test "$WITH_LIBPSIO" != "no"; then
+	LIBPSIO_CFLAGS="-I$WITH_LIBPSIO/include/"
+	LIBPSIO_LIBS="$WITH_LIBPSIO/lib/libps.a"
+	CFLAGS="${CFLAGS} ${LIBPSIO_CFLAGS}"
+	AC_DEFINE([HAVE_LIBPSIO], [1], [libpsio support])
+	AC_MSG_RESULT(yes)
+else
+	AC_MSG_RESULT(no)
+fi
+
+AC_SUBST(LIBPSIO_CFLAGS)
+AC_SUBST(LIBPSIO_LIBS)
+
+
+AC_MSG_CHECKING(for dpdk support)
+AC_ARG_WITH(libdpdk,
+    AC_HELP_STRING([--with-libdpdk@<:@=PATH@:>@],[Include libdpdk support in PATH/include and PATH/lib]),
+    [WITH_LIBDPDK=$withval],[WITH_LIBDPDK=no])
+
+LIBDPDK_CFLAGS=""
+LIBDPDK_LIBS=""
+
+if test "$WITH_LIBDPDK" != "no"; then
+#	DPDK_MACHINE_FLAGS=`cat $WITH_LIBDPDK/include/cflags.txt`
+#	LIBDPDK_CFLAGS="$DPDK_MACHINE_FLAGS -I$WITH_LIBDPDK/include/"
+	LIBDPDK_LDFLAGS=`cat $WITH_LIBDPDK/lib/ldflags.txt`
+	LIBDPDK_LIBS="-L$WITH_LIBDPDK/lib/ -m64 -g -O3 -pthread -lrt -march=native -Wl,-export-dynamic -Wl,-lnuma -Wl,-lpthread -Wl,-lrt -Wl,-ldl -Wl,$LIBDPDK_LDFLAGS"
+	CFLAGS="${CFLAGS} ${LIBDPDK_CFLAGS}"
+	AC_DEFINE([HAVE_LIBDPDK], [1], [libdpdk support])
+	AC_MSG_RESULT(yes)
+else
+	AC_MSG_RESULT(no)
+fi
+
+AC_SUBST(LIBDPDK_CFLAGS)
+AC_SUBST(LIBDPDK_LIBS)
+
+AC_MSG_CHECKING(for onvm support)
+AC_ARG_WITH(libonvm,
+    AC_HELP_STRING([--with-libonvm@<:@=PATH@:>@],[Include libonvm support in PATH]),
+    [WITH_LIBONVM=$withval],[WITH_LIBONVM=no])
+
+LIBONVM_CFLAGS=""
+LIBONVM_LIBS=""
+
+if test "$WITH_LIBONVM" != "no"; then
+	LIBONVM_CFLAGS="-I$WITH_LIBONVM/onvm_nflib -I$WITH_LIBONVM/lib"
+	LIBONVM_LIBS="$WITH_LIBONVM/onvm_nflib/$RTE_TARGET/libonvm.a $WITH_LIBONVM/lib/$RTE_TARGET/lib/libonvmhelper.a -lm"
+	CFLAGS="${CFLAGS} ${LIBONVM_CFLAGS}"
+	AC_DEFINE([HAVE_LIBONVM], [1], [libonvm support])
+	AC_MSG_RESULT(yes)
+else
+	AC_MSG_RESULT(no)
+fi
+
+AC_SUBST(LIBONVM_CFLAGS)
+AC_SUBST(LIBONVM_LIBS)
+
+
+AC_MSG_CHECKING(for netmap support)
+AC_ARG_ENABLE(netmap,
+ AC_HELP_STRING([--enable-netmap],[Turn on Netmap support]),
+ [case "${enableval}" in
+   yes) CFLAGS="${CFLAGS} -DHAVE_NETMAP";;
+    no) ;;
+     *) AC_MSG_ERROR(bad value ${enableval} for --enable-lfs) ;;
+  esac],[CFLAGS="${CFLAGS}"
+	 enable_netmap=no])
+AC_MSG_RESULT($enableval)
+
 dnl build version-id
 LIGHTTPD_VERSION_ID=m4_format([0x%x%02x%02x], m4_unquote(m4_split(AC_PACKAGE_VERSION, [\.])))
 AC_DEFINE_UNQUOTED([LIGHTTPD_VERSION_ID], [$LIGHTTPD_VERSION_ID], [lighttpd-version-id])
@@ -1879,6 +1996,9 @@ lighty_track_feature "webdav-properties" "" \
 
 lighty_track_feature "webdav-locks" "" \
   'test "$WITH_WEBDAV_LOCKS" != no'
+
+lighty_track_feature "multithreading" "" \
+  'test "$multithreading" = true'
 
 dnl output
 

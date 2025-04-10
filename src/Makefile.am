@@ -104,9 +104,9 @@ if NO_RDYNAMIC
 common_ldflags = -avoid-version -no-undefined
 lib_LTLIBRARIES += liblightcomp.la
 liblightcomp_la_SOURCES=$(common_src)
-liblightcomp_la_CFLAGS= $(FAM_CFLAGS) $(LIBUNWIND_CFLAGS)
+liblightcomp_la_CFLAGS= $(FAM_CFLAGS) $(LIBUNWIND_CFLAGS) $(LIBMTCP_CFLAGS)
 liblightcomp_la_LDFLAGS = $(common_ldflags) --export-all-symbols
-liblightcomp_la_LIBADD = $(PCRE_LIB) $(CRYPTO_LIB) $(FAM_LIBS) $(LIBUNWIND_LIBS) $(ATTR_LIB) $(WS2_32_LIB)
+liblightcomp_la_LIBADD = $(PCRE_LIB) $(CRYPTO_LIB) $(FAM_LIBS) $(LIBUNWIND_LIBS) $(ATTR_LIB) $(WS2_32_LIB) $(LIBMTCP_LIBS) $(LIBPSIO_LIBS) $(LIBDPDK_LIBS) $(LIBONVM_LIBS)
 common_libadd = liblightcomp.la
 if !LIGHTTPD_STATIC
 common_src += mod_auth_api.c mod_vhostdb_api.c
@@ -422,14 +422,14 @@ lighttpd_SOURCES = \
   mod_webdav.c
 lighttpd_CPPFLAGS = \
   $(XML_CFLAGS) $(SQLITE_CFLAGS) \
-  $(FAM_CFLAGS) $(LIBUNWIND_CFLAGS)
+  $(FAM_CFLAGS) $(LIBUNWIND_CFLAGS) $(LIBMTCP_CFLAGS)
 lighttpd_LDADD = \
   $(common_libadd) \
   $(CRYPT_LIB) $(CRYPTO_LIB) $(XXHASH_LIBS) \
   $(XML_LIBS) $(SQLITE_LIBS) $(ELFTC_LIB) \
   $(PCRE_LIB) $(Z_LIB) $(ZSTD_LIB) $(BZ_LIB) $(BROTLI_LIBS) $(DEFLATE_LIBS) \
   $(DL_LIB) $(SENDFILE_LIB) $(ATTR_LIB) \
-  $(FAM_LIBS) $(LIBUNWIND_LIBS)
+  $(FAM_LIBS) $(LIBUNWIND_LIBS) $(LIBMTCP_LIBS) $(LIBPSIO_LIBS) $(LIBDPDK_LIBS) $(LIBONVM_LIBS)
 lighttpd_LDFLAGS = -export-dynamic
 
 lighttpd_SOURCES += h2.c ls-hpack/lshpack.c algo_xxhash.c
@@ -504,8 +504,8 @@ else
 
 ## default lighttpd server
 lighttpd_SOURCES = $(src)
-lighttpd_CPPFLAGS = $(FAM_CFLAGS) $(LIBUNWIND_CFLAGS)
-lighttpd_LDADD = $(common_libadd) $(PCRE_LIB) $(DL_LIB) $(SENDFILE_LIB) $(ATTR_LIB) $(CRYPTO_LIB) $(XXHASH_LIBS) $(FAM_LIBS) $(LIBUNWIND_LIBS) $(WS2_32_LIB)
+lighttpd_CPPFLAGS = $(FAM_CFLAGS) $(LIBUNWIND_CFLAGS) $(LIBMTCP_CFLAGS)
+lighttpd_LDADD = $(common_libadd) $(PCRE_LIB) $(DL_LIB) $(SENDFILE_LIB) $(ATTR_LIB) $(CRYPTO_LIB) $(XXHASH_LIBS) $(FAM_LIBS) $(LIBUNWIND_LIBS) $(WS2_32_LIB) $(LIBMTCP_LIBS) $(LIBPSIO_LIBS) $(LIBDPDK_LIBS) $(LIBONVM_LIBS)
 lighttpd_LDFLAGS = -export-dynamic
 
 endif
@@ -539,8 +539,8 @@ t_test_mod_SOURCES = $(common_src) t/test_mod.c \
                      t/test_mod_ssi.c \
                      t/test_mod_staticfile.c \
                      t/test_mod_userdir.c
-t_test_mod_CFLAGS  = $(FAM_CFLAGS) $(LIBUNWIND_CFLAGS)
-t_test_mod_LDADD   = $(PCRE_LIB) $(CRYPTO_LIB) $(DL_LIB) $(FAM_LIBS) $(LIBUNWIND_LIBS) $(ATTR_LIB) $(WS2_32_LIB)
+t_test_mod_CFLAGS  = $(FAM_CFLAGS) $(LIBUNWIND_CFLAGS) $(LIBMTCP_CFLAGS)
+t_test_mod_LDADD   = $(PCRE_LIB) $(CRYPTO_LIB) $(DL_LIB) $(FAM_LIBS) $(LIBUNWIND_LIBS) $(ATTR_LIB) $(WS2_32_LIB) $(LIBMTCP_LIBS) $(LIBPSIO_LIBS) $(LIBDPDK_LIBS) $(LIBONVM_LIBS)
 
 noinst_HEADERS   = $(hdr)
 EXTRA_DIST = \
