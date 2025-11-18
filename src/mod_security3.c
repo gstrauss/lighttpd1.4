@@ -81,7 +81,6 @@ typedef struct {
 typedef struct {
     PLUGIN_DATA;
     plugin_config defaults;
-    plugin_config conf;
     ModSecurity *ms;
 } plugin_data;
 
@@ -106,6 +105,7 @@ handler_ctx_init_txn (request_st * const r, plugin_data * const p,
     buffer * const tb = r->tmp_buf;
     buffer_clear(tb);
     buffer_append_int(tb, r->start_hp.tv_sec*1000000000 + r->start_hp.tv_nsec);
+    /* thread-safety todo: check if using p->ms is thread-safe */
     Transaction * const txn =
       msc_new_transaction_with_id(p->ms, rules, tb->ptr, r->conf.errh);
     if (txn) return txn;
@@ -207,12 +207,12 @@ mod_security3_merge_config (plugin_config * const pconf,
 
 
 static void
-mod_security3_patch_config (request_st * const r, plugin_data * const p)
+mod_security3_patch_config (request_st * const r, const plugin_data * const p, plugin_config * const pconf)
 {
-    p->conf = p->defaults; /* copy small struct instead of memcpy() */
+    *pconf = p->defaults; /* copy small struct instead of memcpy() */
     for (int i = 1, used = p->nconfig; i < used; ++i) {
         if (config_check_cond(r, (uint32_t)p->cvlist[i].k_id))
-            mod_security3_merge_config(&p->conf,p->cvlist+p->cvlist[i].v.u2[0]);
+            mod_security3_merge_config(pconf,p->cvlist+p->cvlist[i].v.u2[0]);
     }
 }
 
@@ -594,13 +594,13 @@ mod_security3_reqbody (handler_ctx * const hctx, request_st * const r,
         r->conf.stream_request_body &=
           ~(FDEVENT_STREAM_REQUEST|FDEVENT_STREAM_REQUEST_BUFMIN);
         r->conf.stream_request_body |= FDEVENT_STREAM_REQUEST_CONFIGURED;
-        r->handler_module = p->self;
+        r->handler_module = (plugin_data_base *)p;
     }
     else {
         log_error(r->conf.errh, __FILE__, __LINE__,
           "unable to collect request body (handler already set); "
           "(perhaps load mod_security3 earlier in server.modules, "
-          "before mod_%s)", r->handler_module->name);
+          "before mod_%s)", r->handler_module->self->name);
     }
 
     return HANDLER_GO_ON;
@@ -745,10 +745,11 @@ URIHANDLER_FUNC(mod_security3_handle_uri)
     if (hctx != NULL)
         opts = hctx->opts;
     else {
-        mod_security3_patch_config(r, p);
-        opts = p->conf.opts;
+        plugin_config pconf;
+        mod_security3_patch_config(r, p, &pconf);
+        opts = pconf.opts;
         if (NULL == opts) return HANDLER_GO_ON;
-        RulesSet * const rules = p->conf.rules;
+        RulesSet * const rules = pconf.rules;
         if (NULL == rules) return HANDLER_GO_ON;
 
         if (opts->prereq_auth) {
