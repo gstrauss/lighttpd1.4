@@ -38,6 +38,7 @@
 #include "fdevent.h"
 #include "http_header.h"
 #include "http_kv.h"
+#include "http_status.h"
 #include "request.h"
 #include "response.h"
 #include "plugin.h"
@@ -386,7 +387,7 @@ mod_security3_hctx_dptr_malloc (handler_ctx * const hctx)
         request_st * const r = hctx->r;
         log_perror(r->conf.errh, __FILE__, __LINE__, "malloc");
         http_response_reset(r);
-        r->http_status = 500;
+        http_status_set_err(r, 500);
         return 0;
     }
     return 1;
@@ -411,9 +412,9 @@ mod_security3_disruptive (handler_ctx * const hctx)
         return 0;
 
     http_response_reset(r);
-    r->http_status = it->status;
+    http_status_set(r, it->status);
     it->status = 200;
-    msc_update_status_code(hctx->txn, r->http_status);
+    msc_update_status_code(hctx->txn, http_status_get(r));
 
     if (it->url) {
         buffer * const v =
@@ -455,7 +456,7 @@ mod_security3_txn_append_cq_file (handler_ctx * const hctx,
         log_perror(r->conf.errh, __FILE__, __LINE__,
           "open failed %s", c->mem->ptr);
         http_response_reset(r);
-        r->http_status = 500;
+        http_status_set_err(r, 500);
         return -1;
     }
 
@@ -484,7 +485,7 @@ mod_security3_txn_append_cq_file (handler_ctx * const hctx,
                 log_error(r->conf.errh, __FILE__, __LINE__,
                   "file truncated %s", c->mem->ptr);
             http_response_reset(r);
-            r->http_status = 500;
+            http_status_set_err(r, 500);
             rc = -1;
         }
         if (rc <= 0) break;
@@ -676,7 +677,7 @@ mod_security3_resphdr (handler_ctx * const hctx, request_st * const r)
     buffer_clear(tb);
     http_version_append(tb, r->http_version);
     tb->ptr[4] = ' '; /* e.g. "HTTP 1.1" instead of "HTTP/1.1" */
-    msc_process_response_headers(hctx->txn, r->http_status, tb->ptr);
+    msc_process_response_headers(hctx->txn, http_status_get(r), tb->ptr);
     if (msc_intervention(hctx->txn,&hctx->it) && mod_security3_disruptive(hctx))
         return HANDLER_FINISHED;
 
