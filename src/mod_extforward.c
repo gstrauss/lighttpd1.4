@@ -1324,7 +1324,7 @@ struct pp2_tlv_ssl {
     uint8_t  client;
     uint32_t verify;
     /*struct pp2_tlv sub_tlv[0];*//* C99 zero-length array */
-};
+} __attribute_packed__;
 
 /*
 And the <client> field is made of a bit field from the following values,
