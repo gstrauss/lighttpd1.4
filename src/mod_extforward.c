@@ -1322,7 +1322,7 @@ For the type PP2_TYPE_SSL, the value is itself defined like this :
 
 struct pp2_tlv_ssl {
     uint8_t  client;
-    uint32_t verify;
+    uint8_t  verify[4]; /* all four bytes must be compared to 0 */
     /*struct pp2_tlv sub_tlv[0];*//* C99 zero-length array */
 } __attribute_packed__;
 
