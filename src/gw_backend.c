@@ -2015,6 +2015,13 @@ static handler_t gw_write_request(gw_handler_ctx * const hctx, request_st * cons
         gw_proc_load_inc(hctx->host, hctx->proc);
 
         hctx->fd = fdevent_socket_nb_cloexec(hctx->host->family,SOCK_STREAM,0);
+      #ifndef _WIN32
+        if (hctx->fd >= r->con->srv->max_fds) {
+            fdio_close_socket(hctx->fd);
+            hctx->fd = -1;
+            errno = EBADF;
+        }
+      #endif
         if (-1 == hctx->fd) {
             log_perror(r->conf.errh, __FILE__, __LINE__,
               "socket() failed (cur_fds:%d) (max_fds:%d)",

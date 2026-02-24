@@ -916,6 +916,10 @@ static int cgi_create_env(request_st * const r, handler_ctx * const hctx, buffer
 	}
 	if (fdevent_pipe_cloexec(from_cgi_fds, bufsz_hint))
 		return cgi_create_err(r, cgi_fds, "pipe()");
+	if (from_cgi_fds[1] >= r->con->srv->max_fds) {
+		errno = EBADF;
+		return cgi_create_err(r, cgi_fds, "hit server.max_fds limit");
+	}
   #endif
 	if (-1 == fdevent_fcntl_set_nb(from_cgi_fds[0]))
 		return cgi_create_err(r, cgi_fds, "fcntl()");

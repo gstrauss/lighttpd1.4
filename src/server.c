@@ -2025,19 +2025,24 @@ static int server_main_setup (server * const srv, int argc, char **argv) {
 	srv->max_fds_hiwat = srv->max_fds * 9 / 10;
 
 	/* set max-conns */
-	if (srv->srvconf.max_conns > srv->max_fds/2) {
-		/* we can't have more connections than max-fds/2 */
+	/* too many connections + requests may exhaust max_fds limit */
+	const int factor = config_feature_bool(srv, "server.h2proto", 1)
+	  ? 10 /*(mod_h2 currently sets limit to 8 concurrent streams per connection)*/
+	  : 2;
+	if (srv->srvconf.max_conns > srv->max_fds / factor) {
 		log_warn(srv->errh, __FILE__, __LINE__,
-		  "can't have more connections than fds/2: %hu %d",
-		  srv->srvconf.max_conns, srv->max_fds);
-		srv->lim_conns = srv->srvconf.max_conns = srv->max_fds/2;
-	} else if (srv->srvconf.max_conns) {
-		/* otherwise respect the wishes of the user */
-		srv->lim_conns = srv->srvconf.max_conns;
-	} else {
-		/* or use the default: we really don't want to hit max-fds */
-		srv->lim_conns = srv->srvconf.max_conns = srv->max_fds/3;
+		  "reducing server.max-connections (%hu) to 1/(%d) server.max-fds (%d)",
+		  srv->srvconf.max_conns, factor, srv->max_fds);
+		srv->srvconf.max_conns = srv->max_fds / factor;
 	}
+	else if (srv->srvconf.max_conns) {
+		/* respect admin server.max-connections if <= safety threshold */
+	}
+	else {
+		/* or use the default: we really don't want to hit max-fds */
+		srv->srvconf.max_conns = srv->max_fds / (factor > 2 ? factor : 3);
+	}
+	srv->lim_conns = srv->srvconf.max_conns;
 
   #if defined(HAVE_MALLOC_TRIM)
 	if (srv->srvconf.max_conns <= 16 && malloc_top_pad == 524288)

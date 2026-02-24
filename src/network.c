@@ -82,6 +82,13 @@ static handler_t network_server_handle_fdevent(void *context, int revents) {
         int fd = fdevent_accept_listenfd(srv_socket->fd,
                                          (struct sockaddr *)&addr, &addrlen);
         if (-1 == fd) break;
+      #ifndef _WIN32
+        if (fd >= srv->max_fds) {
+            fdio_close_socket(fd);
+            errno = EBADF;
+            break;
+        }
+      #endif
 
         if (nagle_disable)
             network_accept_tcp_nagle_disable(fd);
