@@ -115,6 +115,7 @@ jobs:
       - uses: vmactions/dragonflybsd-vm@v1
         with:
           usesh: true
+          cache-after-prepare: true
           prepare: |
             pkg install -y bash ninja meson pkgconf pcre2 perl5
           run: |
@@ -133,9 +134,9 @@ jobs:
           cpu: 4
           usesh: true
           copyback: false
+          cache-after-prepare: true
           prepare: |
             mount -t procfs proc /proc
-          run: |
             #mkdir -p /usr/local/etc/pkg/repos
             #echo 'FreeBSD: { url: "pkg+https://pkg.FreeBSD.org/${ABI}/latest" }' > /usr/local/etc/pkg/repos/FreeBSD.conf
             pkg update -f -q
@@ -148,6 +149,7 @@ jobs:
               brotli libdeflate zstd \
               libmaxminddb libunwind lua51 lua54 \
               libxml2 sqlite3
+          run: |
             set -e
             export WITH_WOLFSSL=1
             cd "${{github.workspace}}" && scripts/ci-build.sh meson
@@ -162,6 +164,7 @@ jobs:
       - uses: vmactions/netbsd-vm@v1
         with:
           #usesh: true
+          cache-after-prepare: true
           prepare: |
             pkg_add -u dash cmake ninja pkgconf pcre2 perl \
               gnutls libressl mbedtls nettle nss wolfssl \
@@ -184,6 +187,7 @@ jobs:
       - uses: vmactions/openbsd-vm@v1
         with:
           usesh: true
+          cache-after-prepare: true
           prepare: |
             pkg_add ninja meson pkgconf pcre2 \
               gnutls mbedtls libnettle nss \
@@ -209,6 +213,7 @@ jobs:
           release: "11.4-gcc"
           usesh: true
           copyback: false
+          cache-after-prepare: true
           prepare: |
             pkgutil -U
             pkgutil -y -i cmake gmake pkgconfig perl \
